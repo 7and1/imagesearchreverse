@@ -1,0 +1,14 @@
+name = "imagesearchreverse"
+pages_build_output_dir = ".vercel/output/static"
+compatibility_date = "2026-01-14"
+
+# KV namespaces (create with: wrangler kv:namespace create "KV_RATE_LIMIT")
+[[kv_namespaces]]
+binding = "KV_RATE_LIMIT"
+id = "YOUR_KV_NAMESPACE_ID"
+preview_id = "YOUR_KV_NAMESPACE_PREVIEW_ID"
+
+# R2 bucket (create with: wrangler r2 bucket create img-search-temp)
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "img-search-temp"
