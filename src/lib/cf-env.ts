@@ -5,7 +5,29 @@ type CloudflareEnv = {
   R2_BUCKET?: R2Bucket;
 };
 
-export type AppEnv = CloudflareEnv & NodeJS.ProcessEnv;
+// Common environment variables
+type BaseEnv = {
+  NODE_ENV?: string;
+  TZ?: string;
+
+  // DataForSEO
+  DFS_LOGIN?: string;
+  DFS_PASSWORD?: string;
+  DFS_ENDPOINT_POST?: string;
+  DFS_ENDPOINT_GET?: string;
+
+  // R2
+  NEXT_PUBLIC_R2_DOMAIN?: string;
+
+  // Site
+  NEXT_PUBLIC_SITE_URL?: string;
+
+  // Turnstile
+  TURNSTILE_SECRET_KEY?: string;
+  NEXT_PUBLIC_TURNSTILE_SITE_KEY?: string;
+};
+
+export type AppEnv = CloudflareEnv & BaseEnv;
 
 export const getEnv = (): AppEnv => {
   try {

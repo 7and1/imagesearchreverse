@@ -1,25 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkRateLimit, makeRateLimitKey } from "@/lib/rate-limit";
-
-class MemoryKV implements KVNamespace {
-  private store = new Map<string, string>();
-
-  async get(key: string) {
-    return this.store.get(key) ?? null;
-  }
-
-  async put(key: string, value: string) {
-    this.store.set(key, value);
-  }
-
-  async delete(key: string) {
-    this.store.delete(key);
-  }
-
-  async list() {
-    return { keys: [], list_complete: true, cursor: "" };
-  }
-}
+import { MockKVNamespace } from "@/test/setup";
 
 describe("rate limiting", () => {
   it("builds deterministic keys", () => {
@@ -37,7 +18,7 @@ describe("rate limiting", () => {
   });
 
   it("enforces limits", async () => {
-    const kv = new MemoryKV();
+    const kv = new MockKVNamespace() as unknown as KVNamespace;
 
     const first = await checkRateLimit(kv, "ip", 2);
     expect(first.allowed).toBe(true);

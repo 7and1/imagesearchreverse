@@ -1,6 +1,7 @@
 name = "imagesearchreverse"
 pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2026-01-14"
+compatibility_flags = ["nodejs_compat"]
 
 # KV namespaces (create with: wrangler kv:namespace create "KV_RATE_LIMIT")
 [[kv_namespaces]]
@@ -12,3 +13,12 @@ preview_id = "YOUR_KV_NAMESPACE_PREVIEW_ID"
 [[r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "img-search-temp"
+
+# Environment variables (set in Cloudflare dashboard or via CLI)
+# DFS_LOGIN=
+# DFS_PASSWORD=
+# DFS_ENDPOINT_POST=
+# DFS_ENDPOINT_GET=
+# NEXT_PUBLIC_R2_DOMAIN=
+# TURNSTILE_SECRET_KEY= (optional)
+# NEXT_PUBLIC_TURNSTILE_SITE_KEY= (optional)

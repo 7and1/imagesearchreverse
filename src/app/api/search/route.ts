@@ -18,29 +18,44 @@ import {
   resolveSearchResults,
 } from "@/lib/dataforseo";
 import { z } from "zod";
+import { createLogger } from "@/lib/logger";
+import { isAppError, errorToResponse } from "@/lib/errors";
+import { deduplicatedRequest } from "@/lib/request-deduplication";
 
 export const runtime = "edge";
+
+const logger = createLogger("api:search");
 
 const TaskQuerySchema = z.object({
   taskId: z.string().min(1),
 });
+
 const CACHE_TTL_SECONDS = 60 * 60 * 48;
 const TASK_TTL_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  const startedAt = Date.now();
+  const timing = logger.startTiming("POST /api/search");
+
   try {
     const env = getEnv();
     const { imageUrl, imageHash, turnstileToken } =
       await parseImageSearchInput(request);
     const ip = getClientIp(request);
 
+    logger.debug("Parsed search input", {
+      requestId,
+      imageUrl: imageUrl.replace(/\/\/([^@]+)@/, "//***@"),
+      hasImageHash: !!imageHash,
+    });
+
+    const turnstileStart = Date.now();
     const turnstile = await verifyTurnstileToken(
       env,
       turnstileToken ?? null,
       ip,
     );
+    timing.addMetric("turnstile", turnstileStart);
 
     if (!turnstile.ok) {
       const response = NextResponse.json(
@@ -48,12 +63,16 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
       response.headers.set("X-Request-Id", requestId);
+      timing.end({ requestId, status: 403, reason: "turnstile_failed" });
       return response;
     }
 
     const headers = new Headers();
+    const rateLimitStart = Date.now();
+
     if (env.KV_RATE_LIMIT) {
       const rate = await checkRateLimit(env.KV_RATE_LIMIT, ip, 10);
+      timing.addMetric("rateLimit", rateLimitStart);
 
       if (!rate.allowed) {
         const response = NextResponse.json(
@@ -71,20 +90,26 @@ export async function POST(request: NextRequest) {
           },
         );
         response.headers.set("X-Request-Id", requestId);
+        timing.end({ requestId, status: 429, reason: "rate_limited" });
         return response;
       }
 
       headers.set("X-RateLimit-Limit", String(rate.limit));
       headers.set("X-RateLimit-Remaining", String(rate.remaining));
       headers.set("X-RateLimit-Reset", rate.resetAt);
+    } else {
+      timing.addMetric("rateLimit", rateLimitStart);
     }
 
     const cacheStore = env.KV_RATE_LIMIT;
     let cacheKey: string | null = null;
+    const cacheStart = Date.now();
 
     if (cacheStore) {
       cacheKey = await buildCacheKey(imageUrl, imageHash);
       const cached = await getCachedResult(cacheStore, cacheKey);
+      timing.addMetric("cacheRead", cacheStart);
+
       if (cached) {
         const response = NextResponse.json(
           {
@@ -95,18 +120,29 @@ export async function POST(request: NextRequest) {
           { status: 200, headers },
         );
         response.headers.set("X-Request-Id", requestId);
-        console.info("search:cache-hit", {
+        timing.end({
           requestId,
-          durationMs: Date.now() - startedAt,
+          status: 200,
+          cached: true,
+          results: cached.results.length,
         });
         return response;
       }
+    } else {
+      timing.addMetric("cacheRead", cacheStart);
     }
 
-    const lookupStart = Date.now();
-    const result = await resolveSearchResults(env, imageUrl);
+    const searchKey = cacheKey ?? imageUrl;
+    const result = await deduplicatedRequest(searchKey, async () => {
+      const dataforseoStart = Date.now();
+      const results = await resolveSearchResults(env, imageUrl);
+      timing.addMetric("dataforseo", dataforseoStart);
+      return results;
+    });
 
     if (cacheStore && cacheKey) {
+      const cacheWriteStart = Date.now();
+
       if (result.taskId) {
         await storeTaskMapping(
           cacheStore,
@@ -129,6 +165,8 @@ export async function POST(request: NextRequest) {
           CACHE_TTL_SECONDS,
         );
       }
+
+      timing.addMetric("cacheWrite", cacheWriteStart);
     }
 
     const response = NextResponse.json(result, {
@@ -136,20 +174,21 @@ export async function POST(request: NextRequest) {
       headers,
     });
     response.headers.set("X-Request-Id", requestId);
-    console.info("search:success", {
+    timing.end({
       requestId,
       status: result.status,
       results: result.results.length,
-      durationMs: Date.now() - startedAt,
-      dataforseoMs: Date.now() - lookupStart,
+      deduplicated: true,
     });
     return response;
   } catch (error) {
-    console.error("search:failed", { requestId, error });
-    const response = NextResponse.json(
-      { error: "Search failed." },
-      { status: 500 },
-    );
+    timing.endWithError(error, { requestId });
+    logger.error("Search request failed", error, { requestId });
+
+    const statusCode = isAppError(error) ? error.statusCode : 500;
+    const errorResponse = errorToResponse(error);
+
+    const response = NextResponse.json(errorResponse, { status: statusCode });
     response.headers.set("X-Request-Id", requestId);
     return response;
   }
@@ -157,7 +196,8 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
-  const startedAt = Date.now();
+  const timing = logger.startTiming("GET /api/search");
+
   try {
     const env = getEnv();
     const taskId = request.nextUrl.searchParams.get("taskId");
@@ -169,14 +209,20 @@ export async function GET(request: NextRequest) {
         { status: 400 },
       );
       response.headers.set("X-Request-Id", requestId);
+      timing.end({ requestId, status: 400, reason: "missing_taskId" });
       return response;
     }
 
+    logger.debug("Polling task", { requestId, taskId: parsed.data.taskId });
+
     const cacheStore = env.KV_RATE_LIMIT;
     let cacheKey: string | null = null;
+    const cacheStart = Date.now();
 
     if (cacheStore) {
       cacheKey = await getCacheKeyForTask(cacheStore, parsed.data.taskId);
+      timing.addMetric("cacheRead", cacheStart);
+
       if (cacheKey) {
         const cached = await getCachedResult(cacheStore, cacheKey);
         if (cached) {
@@ -191,21 +237,28 @@ export async function GET(request: NextRequest) {
             { status: 200 },
           );
           response.headers.set("X-Request-Id", requestId);
-          console.info("search:cache-hit", {
+          timing.end({
             requestId,
-            durationMs: Date.now() - startedAt,
+            status: 200,
+            cached: true,
+            results: cached.results.length,
           });
           return response;
         }
       }
+    } else {
+      timing.addMetric("cacheRead", cacheStart);
     }
 
+    const dataforseoStart = Date.now();
     const data = await getSearchByImageTask(env, parsed.data.taskId);
     const results = extractSearchResults(data);
+    timing.addMetric("dataforseo", dataforseoStart);
 
     const status = results.length > 0 ? "ready" : "pending";
 
     if (cacheStore && cacheKey && results.length > 0) {
+      const cacheWriteStart = Date.now();
       await storeCachedResult(
         cacheStore,
         cacheKey,
@@ -217,6 +270,7 @@ export async function GET(request: NextRequest) {
         },
         CACHE_TTL_SECONDS,
       );
+      timing.addMetric("cacheWrite", cacheWriteStart);
     }
 
     const response = NextResponse.json(
@@ -229,19 +283,21 @@ export async function GET(request: NextRequest) {
       { status: status === "ready" ? 200 : 202 },
     );
     response.headers.set("X-Request-Id", requestId);
-    console.info("search:poll", {
+    timing.end({
       requestId,
       status,
       results: results.length,
-      durationMs: Date.now() - startedAt,
+      cached: false,
     });
     return response;
   } catch (error) {
-    console.error("search:failed", { requestId, error });
-    const response = NextResponse.json(
-      { error: "Search failed." },
-      { status: 500 },
-    );
+    timing.endWithError(error, { requestId });
+    logger.error("Search poll failed", error, { requestId });
+
+    const statusCode = isAppError(error) ? error.statusCode : 500;
+    const errorResponse = errorToResponse(error);
+
+    const response = NextResponse.json(errorResponse, { status: statusCode });
     response.headers.set("X-Request-Id", requestId);
     return response;
   }

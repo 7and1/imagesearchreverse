@@ -87,4 +87,20 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
   }
+
+  /* Smooth transitions for interactive elements */
+  * {
+    transition-property:
+      color, background-color, border-color, text-decoration-color, fill,
+      stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
+  }
+
+  /* Disable transitions for specific elements where they'd cause issues */
+  input,
+  textarea,
+  select {
+    transition-property: color, background-color, border-color, box-shadow;
+  }
 }

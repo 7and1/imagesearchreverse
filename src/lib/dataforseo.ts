@@ -1,6 +1,12 @@
 import { z } from "zod";
 import type { AppEnv } from "@/lib/cf-env";
 import { validatePublicImageUrl } from "@/lib/url-validation";
+import {
+  DataForSEOError,
+  NetworkError,
+  ValidationError,
+  isAppError,
+} from "@/lib/errors";
 
 export type SearchResult = {
   title: string;
@@ -23,13 +29,31 @@ export type ImageSearchInput = z.infer<typeof ImageSearchSchema>;
 const DEFAULT_LANGUAGE_CODE = "en";
 const DEFAULT_LOCATION_CODE = 2840;
 
+const REQUEST_TIMEOUT_MS = 30000; // 30 seconds
+const MAX_RETRIES = 3;
+const BASE_RETRY_DELAY_MS = 1000; // Start with 1 second
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Exponential backoff with jitter for retries
+ * Calculates delay with base * 2^attempt + random jitter
+ */
+const calculateRetryDelay = (attempt: number): number => {
+  const exponentialDelay = BASE_RETRY_DELAY_MS * Math.pow(2, attempt);
+  const jitter = Math.random() * 1000; // Add up to 1 second of jitter
+  return exponentialDelay + jitter;
+};
 
 const buildAuthHeader = (env: AppEnv) => {
   const login = env.DFS_LOGIN;
   const password = env.DFS_PASSWORD;
   if (!login || !password) {
-    throw new Error("Missing DataForSEO credentials");
+    throw new DataForSEOError(
+      "Missing DataForSEO credentials",
+      "missing_credentials",
+      401,
+    );
   }
   return `Basic ${btoa(`${login}:${password}`)}`;
 };
@@ -143,64 +167,253 @@ export const extractCheckUrl = (data: DataForSeoResponse) => {
 export const parseImageSearchInput = async (
   request: Request,
 ): Promise<ImageSearchInput> => {
-  const payload = await request.json();
-  const parsed = ImageSearchSchema.parse(payload);
-  return {
-    ...parsed,
-    imageUrl: validatePublicImageUrl(parsed.imageUrl),
-    imageHash: parsed.imageHash?.toLowerCase(),
-  };
+  try {
+    const payload = await request.json();
+    const parsed = ImageSearchSchema.parse(payload);
+    const validatedUrl = validatePublicImageUrl(parsed.imageUrl);
+
+    return {
+      ...parsed,
+      imageUrl: validatedUrl,
+      imageHash: parsed.imageHash?.toLowerCase(),
+    };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const field = error.errors[0]?.path[0] as string | undefined;
+      throw new ValidationError(
+        `Invalid input: ${error.errors[0]?.message ?? "validation failed"}`,
+        field,
+        undefined,
+        { zodErrors: error.errors },
+      );
+    }
+    if (isAppError(error)) {
+      throw error;
+    }
+    throw new ValidationError(
+      "Failed to parse search input",
+      undefined,
+      undefined,
+      { originalError: error instanceof Error ? error.message : String(error) },
+    );
+  }
 };
 
-export const postSearchByImageTask = async (env: AppEnv, imageUrl: string) => {
+/**
+ * Enhanced fetch with timeout and retry logic
+ * Wraps fetch with AbortController for timeout handling
+ */
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+): Promise<Response> => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new NetworkError(`Request timeout after ${timeoutMs}ms`, true, {
+        url,
+        timeoutMs,
+      });
+    }
+    throw error;
+  }
+};
+
+/**
+ * POST request to create a new search task with retry logic
+ * Retries on transient failures with exponential backoff
+ */
+export const postSearchByImageTask = async (
+  env: AppEnv,
+  imageUrl: string,
+): Promise<DataForSeoResponse> => {
   const endpoint = env.DFS_ENDPOINT_POST;
   if (!endpoint) {
-    throw new Error("Missing DFS_ENDPOINT_POST");
+    throw new DataForSEOError("Missing DFS_ENDPOINT_POST", "missing_endpoint");
   }
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: buildAuthHeader(env),
-      "Content-Type": "application/json",
+  const requestBody = [
+    {
+      image_url: imageUrl,
+      location_code: DEFAULT_LOCATION_CODE,
+      language_code: DEFAULT_LANGUAGE_CODE,
     },
-    body: JSON.stringify([
-      {
-        image_url: imageUrl,
-        location_code: DEFAULT_LOCATION_CODE,
-        language_code: DEFAULT_LANGUAGE_CODE,
-      },
-    ]),
-  });
+  ];
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DataForSEO task_post failed: ${errorText}`);
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        endpoint,
+        {
+          method: "POST",
+          headers: {
+            Authorization: buildAuthHeader(env),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(requestBody),
+        },
+        REQUEST_TIMEOUT_MS,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const statusCode = response.status;
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
+          throw new DataForSEOError(
+            `DataForSEO task_post failed: ${errorText}`,
+            "http_error",
+            statusCode,
+            { imageUrl, attempt },
+          );
+        }
+
+        // Retry on server errors (5xx) and rate limit (429)
+        lastError = new DataForSEOError(
+          `DataForSEO task_post failed: ${errorText}`,
+          "http_error",
+          statusCode,
+          { imageUrl, attempt },
+        );
+
+        if (attempt < MAX_RETRIES - 1) {
+          const retryDelay = calculateRetryDelay(attempt);
+          await delay(retryDelay);
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      return (await response.json()) as DataForSeoResponse;
+    } catch (error) {
+      if (isAppError(error)) {
+        // Don't retry validation errors or auth errors
+        if (
+          error instanceof ValidationError ||
+          DataForSEOError.isAuthError(error)
+        ) {
+          throw error;
+        }
+      }
+
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Retry on network errors or timeouts
+      if (attempt < MAX_RETRIES - 1) {
+        const retryDelay = calculateRetryDelay(attempt);
+        await delay(retryDelay);
+        continue;
+      }
+
+      throw lastError;
+    }
   }
 
-  return (await response.json()) as DataForSeoResponse;
+  throw lastError || new DataForSEOError("Max retries exceeded", "max_retries");
 };
 
-export const getSearchByImageTask = async (env: AppEnv, taskId: string) => {
+/**
+ * GET request to retrieve search task results with retry logic
+ * Retries on transient failures with exponential backoff
+ */
+export const getSearchByImageTask = async (
+  env: AppEnv,
+  taskId: string,
+): Promise<DataForSeoResponse> => {
   const base = env.DFS_ENDPOINT_GET;
   if (!base) {
-    throw new Error("Missing DFS_ENDPOINT_GET");
+    throw new DataForSEOError("Missing DFS_ENDPOINT_GET", "missing_endpoint");
   }
 
-  const response = await fetch(`${base}/${taskId}`, {
-    method: "GET",
-    headers: {
-      Authorization: buildAuthHeader(env),
-      "Content-Type": "application/json",
-    },
-  });
+  const url = `${base}/${taskId}`;
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`DataForSEO task_get failed: ${errorText}`);
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers: {
+            Authorization: buildAuthHeader(env),
+            "Content-Type": "application/json",
+          },
+        },
+        REQUEST_TIMEOUT_MS,
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        const statusCode = response.status;
+
+        // Don't retry on client errors (4xx) except 429 (rate limit)
+        if (statusCode >= 400 && statusCode < 500 && statusCode !== 429) {
+          throw new DataForSEOError(
+            `DataForSEO task_get failed: ${errorText}`,
+            "http_error",
+            statusCode,
+            { taskId, attempt },
+          );
+        }
+
+        // Retry on server errors (5xx) and rate limit (429)
+        lastError = new DataForSEOError(
+          `DataForSEO task_get failed: ${errorText}`,
+          "http_error",
+          statusCode,
+          { taskId, attempt },
+        );
+
+        if (attempt < MAX_RETRIES - 1) {
+          const retryDelay = calculateRetryDelay(attempt);
+          await delay(retryDelay);
+          continue;
+        }
+
+        throw lastError;
+      }
+
+      return (await response.json()) as DataForSeoResponse;
+    } catch (error) {
+      if (isAppError(error)) {
+        // Don't retry validation errors or auth errors
+        if (
+          error instanceof ValidationError ||
+          DataForSEOError.isAuthError(error)
+        ) {
+          throw error;
+        }
+      }
+
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Retry on network errors or timeouts
+      if (attempt < MAX_RETRIES - 1) {
+        const retryDelay = calculateRetryDelay(attempt);
+        await delay(retryDelay);
+        continue;
+      }
+
+      throw lastError;
+    }
   }
 
-  return (await response.json()) as DataForSeoResponse;
+  throw lastError || new DataForSEOError("Max retries exceeded", "max_retries");
 };
 
 export const pollSearchResults = async (
