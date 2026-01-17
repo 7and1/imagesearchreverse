@@ -30,6 +30,20 @@ jobs:
       - name: Build for Cloudflare Pages
         run: npm run pages:build
 
+      - name: Set Cloudflare Pages secrets
+        run: |
+          npx wrangler pages secret put DFS_LOGIN --value="${{ secrets.DFS_LOGIN }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put DFS_PASSWORD --value="${{ secrets.DFS_PASSWORD }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put DFS_ENDPOINT_POST --value="${{ secrets.DFS_ENDPOINT_POST }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put DFS_ENDPOINT_GET --value="${{ secrets.DFS_ENDPOINT_GET }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put TURNSTILE_SECRET_KEY --value="${{ secrets.TURNSTILE_SECRET_KEY }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put NEXT_PUBLIC_TURNSTILE_SITE_KEY --value="${{ secrets.NEXT_PUBLIC_TURNSTILE_SITE_KEY }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put NEXT_PUBLIC_R2_DOMAIN --value="${{ secrets.NEXT_PUBLIC_R2_DOMAIN }}" --project-name=imagesearchreverse || true
+          npx wrangler pages secret put NEXT_PUBLIC_SITE_URL --value="${{ secrets.NEXT_PUBLIC_SITE_URL }}" --project-name=imagesearchreverse || true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         env:
