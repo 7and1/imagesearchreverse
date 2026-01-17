@@ -9,6 +9,7 @@ import type { SearchResult } from "./dataforseo";
 type PendingRequest = {
   promise: Promise<SearchResults>;
   timestamp: number;
+  failed: boolean;
 };
 
 type SearchResults = {
@@ -44,6 +45,11 @@ export class RequestDeduplicator {
   /**
    * Execute a request with deduplication
    * If a similar request is in progress, return its promise instead of creating a new one
+   *
+   * Error handling:
+   * - Failed requests are immediately removed from pending (no cooldown)
+   * - Successful requests get a cooldown period
+   * - This allows quick retries on transient failures
    */
   async execute<T = SearchResults>(
     key: string,
@@ -57,11 +63,12 @@ export class RequestDeduplicator {
       const age = now - pending.timestamp;
 
       // If the pending request is still fresh, reuse it
-      if (age < this.maxPendingAgeMs) {
+      // But don't reuse failed requests - they should be cleared immediately
+      if (age < this.maxPendingAgeMs && !pending.failed) {
         return pending.promise as Promise<T>;
       }
 
-      // Otherwise, clean up the stale entry
+      // Otherwise, clean up the stale or failed entry
       this.pending.delete(key);
     }
 
@@ -70,16 +77,25 @@ export class RequestDeduplicator {
     this.pending.set(key, {
       promise: promise as Promise<SearchResults>,
       timestamp: now,
+      failed: false,
     });
 
     try {
-      return await promise;
-    } finally {
-      // Remove from pending map after completion
-      // Keep it for a short cooldown period to prevent rapid retries
+      const result = await promise;
+      // Mark as successful, keep for cooldown period
       setTimeout(() => {
         this.pending.delete(key);
       }, this.requestCooldownMs);
+      return result;
+    } catch (error) {
+      // Mark as failed and remove immediately to allow retry
+      const entry = this.pending.get(key);
+      if (entry) {
+        entry.failed = true;
+      }
+      // Remove immediately (no cooldown on errors)
+      this.pending.delete(key);
+      throw error;
     }
   }
 
@@ -103,6 +119,7 @@ export class RequestDeduplicator {
 
   /**
    * Clean up expired pending requests
+   * Failed requests are cleaned up more aggressively
    */
   private cleanup(): void {
     const now = Date.now();
@@ -110,6 +127,14 @@ export class RequestDeduplicator {
 
     for (const [key, value] of this.pending.entries()) {
       const age = now - value.timestamp;
+
+      // Clean up failed requests immediately (they should be removed already, but just in case)
+      if (value.failed) {
+        expiredKeys.push(key);
+        continue;
+      }
+
+      // Clean up old successful requests
       if (age > this.maxPendingAgeMs) {
         expiredKeys.push(key);
       }

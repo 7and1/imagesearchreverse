@@ -3,22 +3,26 @@ pages_build_output_dir = ".vercel/output/static"
 compatibility_date = "2026-01-14"
 compatibility_flags = ["nodejs_compat"]
 
-# KV namespaces (create with: wrangler kv:namespace create "KV_RATE_LIMIT")
+# KV namespace for rate limiting and caching
+# Create with: wrangler kv:namespace create "RATE_LIMIT" --preview
 [[kv_namespaces]]
 binding = "KV_RATE_LIMIT"
 id = "YOUR_KV_NAMESPACE_ID"
-preview_id = "YOUR_KV_NAMESPACE_PREVIEW_ID"
+preview_id = "YOUR_KV_PREVIEW_ID"
 
-# R2 bucket (create with: wrangler r2 bucket create img-search-temp)
+# R2 bucket for image uploads
+# Create with: wrangler r2 bucket create "img-search-temp"
 [[r2_buckets]]
 binding = "R2_BUCKET"
 bucket_name = "img-search-temp"
 
-# Environment variables (set in Cloudflare dashboard or via CLI)
-# DFS_LOGIN=
-# DFS_PASSWORD=
-# DFS_ENDPOINT_POST=
-# DFS_ENDPOINT_GET=
-# NEXT_PUBLIC_R2_DOMAIN=
-# TURNSTILE_SECRET_KEY= (optional)
-# NEXT_PUBLIC_TURNSTILE_SITE_KEY= (optional)
+# Environment variables (set in Cloudflare dashboard Settings > Environment Variables):
+# Production:
+#   NEXT_PUBLIC_TURNSTILE_SITE_KEY = "0x4AAAAAACGnBBFNVERZrUsh"
+#   NEXT_PUBLIC_SITE_URL = "https://imagesearchreverse.com"
+#   NEXT_PUBLIC_R2_DOMAIN = "your-r2-domain"
+#   TURNSTILE_SECRET_KEY = "your-turnstile-secret"
+#   DFS_LOGIN = "your-dfs-login"
+#   DFS_PASSWORD = "your-dfs-password"
+#   DFS_ENDPOINT_POST = "https://api.dataforseo.com/v3/..."
+#   DFS_ENDPOINT_GET = "https://api.dataforseo.com/v3/..."

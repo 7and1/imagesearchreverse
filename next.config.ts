@@ -20,7 +20,11 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   images: {
     unoptimized: true,
+    formats: ["image/webp", "image/avif"],
   },
+  compress: true,
+  productionBrowserSourceMaps: false,
+
   async headers() {
     return [
       {
@@ -39,6 +43,19 @@ const nextConfig: NextConfig = {
             key: "Strict-Transport-Security",
             value: "max-age=31536000; includeSubDomains; preload",
           },
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
+        ],
+      },
+      {
+        source: "/api/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=60, stale-while-revalidate=300" },
+        ],
+      },
+      {
+        source: "/static/:path*",
+        headers: [
+          { key: "Cache-Control", value: "public, max-age=31536000, immutable" },
         ],
       },
     ];

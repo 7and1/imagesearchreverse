@@ -45,6 +45,24 @@ const calculateRetryDelay = (attempt: number): number => {
   return exponentialDelay + jitter;
 };
 
+/**
+ * Sanitize error context to remove sensitive credentials
+ */
+const sanitizeErrorContext = (context: Record<string, unknown>): Record<string, unknown> => {
+  const sanitized = { ...context };
+
+  // Remove credential fields if present
+  const sensitiveKeys = ["login", "password", "auth", "token", "secret", "apiKey", "dfs_login", "dfs_password"];
+
+  for (const key of sensitiveKeys) {
+    delete sanitized[key];
+    delete sanitized[key.toUpperCase()];
+    delete sanitized[key.toLowerCase()];
+  }
+
+  return sanitized;
+};
+
 const buildAuthHeader = (env: AppEnv) => {
   const login = env.DFS_LOGIN;
   const password = env.DFS_PASSWORD;
@@ -278,7 +296,7 @@ export const postSearchByImageTask = async (
             `DataForSEO task_post failed: ${errorText}`,
             "http_error",
             statusCode,
-            { imageUrl, attempt },
+            sanitizeErrorContext({ imageUrl, attempt }),
           );
         }
 
@@ -287,7 +305,7 @@ export const postSearchByImageTask = async (
           `DataForSEO task_post failed: ${errorText}`,
           "http_error",
           statusCode,
-          { imageUrl, attempt },
+          sanitizeErrorContext({ imageUrl, attempt }),
         );
 
         if (attempt < MAX_RETRIES - 1) {
@@ -367,7 +385,7 @@ export const getSearchByImageTask = async (
             `DataForSEO task_get failed: ${errorText}`,
             "http_error",
             statusCode,
-            { taskId, attempt },
+            sanitizeErrorContext({ taskId, attempt }),
           );
         }
 
@@ -376,7 +394,7 @@ export const getSearchByImageTask = async (
           `DataForSEO task_get failed: ${errorText}`,
           "http_error",
           statusCode,
-          { taskId, attempt },
+          sanitizeErrorContext({ taskId, attempt }),
         );
 
         if (attempt < MAX_RETRIES - 1) {

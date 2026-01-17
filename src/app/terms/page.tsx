@@ -1,12 +1,41 @@
 import Link from "next/link";
+import type { Metadata } from "next";
 
-export const metadata = {
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://imagesearchreverse.com";
+
+export const metadata: Metadata = {
   title: "Terms of Service",
+  description:
+    "Read ImageSearchReverse's terms of service. Learn about acceptable use, service limits, third-party data providers, and our service disclaimer.",
+  alternates: {
+    canonical: `${siteUrl}/terms`,
+  },
 };
 
 export default function TermsPage() {
+  const structuredData = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Terms of Service",
+    description:
+      "Read ImageSearchReverse's terms of service. Learn about acceptable use, service limits, third-party data providers, and our service disclaimer.",
+    url: `${siteUrl}/terms`,
+    dateModified: "2026-01-14",
+    isPartOf: {
+      "@type": "WebSite",
+      name: "ImageSearchReverse",
+      url: siteUrl,
+    },
+  };
+
   return (
-    <main className="mx-auto w-full max-w-4xl px-6 py-16">
+    <>
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
+      <main className="mx-auto w-full max-w-4xl px-6 py-16">
       <div className="rounded-3xl border border-sand-200 bg-white/80 p-8">
         <p className="text-xs uppercase tracking-[0.2em] text-ink-500">
           Updated January 14, 2026
@@ -66,5 +95,6 @@ export default function TermsPage() {
         </div>
       </div>
     </main>
+    </>
   );
 }

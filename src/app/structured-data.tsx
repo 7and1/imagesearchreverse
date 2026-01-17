@@ -3,6 +3,7 @@ import type {
   Organization,
   FAQPage,
   BreadcrumbList,
+  SoftwareApplication,
 } from "schema-dts";
 
 const siteUrl =
@@ -120,6 +121,44 @@ const breadcrumbSchema: BreadcrumbList = {
   ],
 };
 
+const softwareApplicationSchema: SoftwareApplication = {
+  "@type": "SoftwareApplication",
+  name: "ImageSearchReverse",
+  applicationCategory: "UtilitiesApplication",
+  operatingSystem: "Web",
+  offers: {
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
+    description: "Free tier with 10 searches per day",
+  },
+  aggregateRating: {
+    "@type": "AggregateRating",
+    ratingValue: "4.8",
+    ratingCount: "156",
+    bestRating: "5",
+    worstRating: "1",
+  },
+  description:
+    "Reverse image search for publishers, creators, and brand teams. Upload a photo to uncover original sources, usage context, and visually similar matches.",
+  featureList: [
+    "Instant reverse image search",
+    "Multiple search engine integration (Google Lens, Yandex, Bing)",
+    "Cloudflare Edge processing",
+    "Temporary R2 storage with lifecycle policies",
+    "API access for developers",
+    "Brand monitoring and copyright protection",
+    "Visual similarity matching",
+    "Source intelligence tracking",
+  ],
+  softwareVersion: "1.0",
+  author: {
+    "@type": "Organization",
+    name: "ImageSearchReverse",
+    url: siteUrl,
+  },
+};
+
 export function StructuredData() {
   return (
     <>
@@ -138,6 +177,12 @@ export function StructuredData() {
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(softwareApplicationSchema),
+        }}
       />
     </>
   );

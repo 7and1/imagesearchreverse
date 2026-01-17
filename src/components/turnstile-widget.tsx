@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type TurnstileOptions = {
   sitekey: string;
@@ -28,15 +28,21 @@ type TurnstileWidgetProps = {
   resetKey?: number;
 };
 
-const loadTurnstileScript = () => {
-  if (document.querySelector("script[data-turnstile]")) return;
-  const script = document.createElement("script");
-  script.src =
-    "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-  script.async = true;
-  script.defer = true;
-  script.dataset.turnstile = "true";
-  document.head.appendChild(script);
+const loadTurnstileScript = (): Promise<void> => {
+  return new Promise((resolve) => {
+    if (document.querySelector("script[data-turnstile]")) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src =
+      "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.defer = true;
+    script.dataset.turnstile = "true";
+    script.onload = () => resolve();
+    document.head.appendChild(script);
+  });
 };
 
 export default function TurnstileWidget({
@@ -47,6 +53,7 @@ export default function TurnstileWidget({
 }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
     if (!siteKey) return;
@@ -63,19 +70,20 @@ export default function TurnstileWidget({
         "expired-callback": onExpire,
         "error-callback": onExpire,
       });
+      setIsLoaded(true);
     };
 
-    loadTurnstileScript();
-
-    if (window.turnstile) {
-      render();
-    } else {
-      const interval = window.setInterval(() => {
-        if (!window.turnstile) return;
-        window.clearInterval(interval);
+    loadTurnstileScript().then(() => {
+      if (window.turnstile) {
         render();
-      }, 200);
-    }
+      } else {
+        const interval = window.setInterval(() => {
+          if (!window.turnstile) return;
+          window.clearInterval(interval);
+          render();
+        }, 200);
+      }
+    });
 
     return () => {
       cancelled = true;
@@ -91,5 +99,13 @@ export default function TurnstileWidget({
     window.turnstile.reset(widgetIdRef.current);
   }, [resetKey]);
 
-  return <div ref={containerRef} className="turnstile" />;
+  return (
+    <div ref={containerRef} className="turnstile">
+      {!isLoaded && (
+        <div className="flex h-12 w-full items-center justify-center bg-sand-200 rounded-lg animate-pulse">
+          <span className="text-xs text-ink-500">Loading security check...</span>
+        </div>
+      )}
+    </div>
+  );
 }

@@ -21,6 +21,32 @@ const ALLOWED_TYPES = new Set([
   "image/gif",
 ]);
 
+// Per-IP upload quotas to prevent abuse
+const MAX_UPLOADS_PER_IP_PER_DAY = 50;
+
+/**
+ * Sanitize filename to prevent path traversal and injection attacks
+ */
+const sanitizeFilename = (filename: string): string => {
+  if (!filename) return "unnamed";
+
+  // Remove any directory separators
+  let sanitized = filename.replace(/[\/\\]/g, "");
+
+  // Remove any null bytes
+  sanitized = sanitized.replace(/\0/g, "");
+
+  // Limit length to prevent DOS
+  if (sanitized.length > 255) {
+    sanitized = sanitized.substring(0, 255);
+  }
+
+  // Remove potentially dangerous characters
+  sanitized = sanitized.replace(/[<>:"|?*\x00-\x1f]/g, "");
+
+  return sanitized || "unnamed";
+};
+
 const buildPublicUrl = (domain: string, key: string) => {
   if (!domain) return key;
   return domain.endsWith("/") ? `${domain}${key}` : `${domain}/${key}`;
@@ -47,6 +73,35 @@ export async function POST(request: NextRequest) {
 
     const rateLimitStart = Date.now();
     if (env.KV_RATE_LIMIT) {
+      // Check per-IP upload quota (separate from general rate limit)
+      const uploadQuota = await checkRateLimit(
+        env.KV_RATE_LIMIT,
+        ip,
+        MAX_UPLOADS_PER_IP_PER_DAY,
+        "upload_quota",
+      );
+
+      if (!uploadQuota.allowed) {
+        const response = NextResponse.json(
+          {
+            error: "Daily upload quota exceeded. Please try again tomorrow.",
+            resetAt: uploadQuota.resetAt,
+          },
+          {
+            status: 429,
+            headers: {
+              "X-RateLimit-Limit": String(uploadQuota.limit),
+              "X-RateLimit-Remaining": String(uploadQuota.remaining),
+              "X-RateLimit-Reset": uploadQuota.resetAt,
+            },
+          },
+        );
+        response.headers.set("X-Request-Id", requestId);
+        timing.end({ requestId, status: 429, reason: "upload_quota_exceeded" });
+        return response;
+      }
+
+      // Check general rate limit
       const rate = await checkRateLimit(env.KV_RATE_LIMIT, ip, 20, "upload");
       timing.addMetric("rateLimit", rateLimitStart);
 
@@ -112,6 +167,7 @@ export async function POST(request: NextRequest) {
       return response;
     }
 
+    // Validate file size before reading buffer (prevent DOS)
     if (file.size > MAX_FILE_SIZE) {
       const response = NextResponse.json(
         { error: "File exceeds 8MB limit." },
@@ -119,6 +175,17 @@ export async function POST(request: NextRequest) {
       );
       response.headers.set("X-Request-Id", requestId);
       timing.end({ requestId, status: 413, reason: "file_too_large" });
+      return response;
+    }
+
+    // Validate file size is not suspiciously small (empty files)
+    if (file.size === 0) {
+      const response = NextResponse.json(
+        { error: "File is empty." },
+        { status: 400 },
+      );
+      response.headers.set("X-Request-Id", requestId);
+      timing.end({ requestId, status: 400, reason: "empty_file" });
       return response;
     }
 
@@ -131,6 +198,23 @@ export async function POST(request: NextRequest) {
 
     const bufferStart = Date.now();
     const buffer = await file.arrayBuffer();
+
+    // Double-check buffer size matches declared file size
+    if (buffer.byteLength !== file.size) {
+      logger.warn("Buffer size mismatch", {
+        requestId,
+        declaredSize: file.size,
+        actualSize: buffer.byteLength,
+      });
+      const response = NextResponse.json(
+        { error: "File size verification failed." },
+        { status: 400 },
+      );
+      response.headers.set("X-Request-Id", requestId);
+      timing.end({ requestId, status: 400, reason: "size_mismatch" });
+      return response;
+    }
+
     const bytes = new Uint8Array(buffer);
     const detectedType = detectImageType(bytes);
     timing.addMetric("readBuffer", bufferStart);
@@ -175,6 +259,38 @@ export async function POST(request: NextRequest) {
     });
 
     const uploadStart = Date.now();
+
+    // Check for hash collision (same hash already exists)
+    const existing = await env.R2_BUCKET.head(key);
+    if (existing) {
+      logger.debug("File already exists (deduplication)", {
+        requestId,
+        key,
+        existingSize: existing.size,
+      });
+
+      // File already exists, return existing URL
+      const publicDomain = env.NEXT_PUBLIC_R2_DOMAIN;
+      const url = buildPublicUrl(publicDomain ?? "", key);
+
+      const response = NextResponse.json(
+        { key, url, hash, cached: true },
+        { headers },
+      );
+      response.headers.set("X-Request-Id", requestId);
+      timing.end({
+        requestId,
+        status: 200,
+        fileSize: file.size,
+        fileType: detectedType,
+        cached: true,
+      });
+      return response;
+    }
+
+    // Sanitize metadata before storage
+    const sanitizedOriginalName = sanitizeFilename(file.name);
+
     await env.R2_BUCKET.put(key, buffer, {
       httpMetadata: {
         contentType: detectedType,
@@ -182,7 +298,8 @@ export async function POST(request: NextRequest) {
       },
       customMetadata: {
         sha256: hash,
-        originalName: file.name,
+        originalName: sanitizedOriginalName,
+        uploadedAt: new Date().toISOString(),
       },
     });
     timing.addMetric("r2Upload", uploadStart);

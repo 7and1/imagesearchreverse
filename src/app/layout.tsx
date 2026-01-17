@@ -6,16 +6,21 @@ import { StructuredData } from "./structured-data";
 const displayFont = Fraunces({
   variable: "--font-display",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 const bodyFont = Space_Grotesk({
   variable: "--font-body",
   subsets: ["latin"],
+  display: "swap",
+  preload: true,
 });
 
 const monoFont = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const siteUrl =
@@ -53,6 +58,21 @@ export const metadata: Metadata = {
     address: false,
     telephone: false,
   },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "ImageSearchReverse",
+  },
+  icons: {
+    icon: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: [
+      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    ],
+  },
   openGraph: {
     type: "website",
     url: siteUrl,
@@ -80,12 +100,6 @@ export const metadata: Metadata = {
   },
   alternates: {
     canonical: siteUrl,
-    languages: {
-      "en-US": siteUrl,
-      "en-GB": `${siteUrl}/en-GB`,
-      "en-CA": `${siteUrl}/en-CA`,
-      "en-AU": `${siteUrl}/en-AU`,
-    },
   },
   robots: {
     index: true,
@@ -99,7 +113,7 @@ export const metadata: Metadata = {
     },
   },
   verification: {
-    google: "google-site-verification-token",
+    google: process.env.GOOGLE_SITE_VERIFICATION ?? "",
   },
 };
 
@@ -123,6 +137,13 @@ export default function RootLayout({
         <StructuredData />
       </head>
       <body className="min-h-screen bg-sand-100 text-ink-900 antialiased">
+        {/* Skip to main content link for keyboard navigation */}
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-lg focus:bg-ink-900 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-sand-100 focus:shadow-lg"
+        >
+          Skip to main content
+        </a>
         {children}
       </body>
     </html>

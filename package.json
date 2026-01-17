@@ -6,11 +6,15 @@
     "dev": "next dev",
     "build": "next build",
     "pages:build": "npx @cloudflare/next-on-pages",
-    "deploy": "npm run pages:build && wrangler pages deploy .vercel/output/static",
+    "deploy": "./deploy.sh production",
+    "deploy:rollback": "./deploy.sh rollback",
     "start": "next start",
     "lint": "eslint",
+    "lint:fix": "eslint --fix",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "analyze": "ANALYZE=true next build",
+    "bundle:report": "npx @next/bundle-analyzer"
   },
   "dependencies": {
     "next": "15.5.2",

@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
 import SearchPanel from "@/components/search-panel";
+import { useState } from "react";
 
 const features = [
   {
@@ -25,12 +28,13 @@ const steps = [
     description: "Drop an image file or paste a direct URL.",
   },
   {
-    title: "Edge processing",
-    description: "Cloudflare Workers process and dispatch your search request.",
+    title: "Open search engines",
+    description:
+      "We generate official Google Lens, Yandex, and Bing links instantly.",
   },
   {
-    title: "Get verified matches",
-    description: "We return visual matches, domains, and source URLs.",
+    title: "Use API fallback",
+    description: "Run the API only if you need structured match data.",
   },
 ];
 
@@ -38,7 +42,7 @@ const faqs = [
   {
     question: "Which sources do you search?",
     answer:
-      "We rely on DataForSEO and Google image search indexes, returning the most relevant visual matches and sources. Our search covers billions of indexed images across the web, providing comprehensive source discovery and visual similarity matching.",
+      "The primary flow opens official Google Lens, Yandex, and Bing results directly in their search engines. Our API fallback relies on DataForSEO and Google image search indexes to return structured matches and sources.",
   },
   {
     question: "Do you store my images?",
@@ -48,7 +52,7 @@ const faqs = [
   {
     question: "How fast are results?",
     answer:
-      "Most searches return in under 15 seconds. Larger images or queue spikes can take longer. Our edge-processing architecture on Cloudflare Workers ensures minimal latency and zero cold starts, providing consistent performance regardless of your location.",
+      "Search engine links open instantly. The API fallback typically returns in 5-15 seconds, with occasional delays during queue spikes. Cloudflare Workers keep latency low when the fallback is used.",
   },
   {
     question: "What image formats are supported?",
@@ -78,11 +82,21 @@ const faqs = [
 ];
 
 export default function Home() {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="relative">
       <div className="pointer-events-none absolute inset-0 opacity-40">
         <div className="h-full w-full grid-mask" />
       </div>
+
+      {/* Skip to main content link for keyboard users */}
+      <a
+        href="#search"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:rounded-full focus:bg-ink-900 focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-sand-100 focus:shadow-lg"
+      >
+        Skip to search
+      </a>
 
       <header className="relative mx-auto flex w-full max-w-6xl items-center justify-between px-6 pb-6 pt-10">
         <div className="flex items-center gap-3">
@@ -98,26 +112,151 @@ export default function Home() {
             </p>
           </div>
         </div>
-        <nav className="hidden items-center gap-6 text-sm text-ink-500 md:flex">
-          <a href="#how" className="transition hover:text-ink-900">
+
+        {/* Desktop Navigation */}
+        <nav
+          className="hidden items-center gap-6 text-sm text-ink-500 md:flex"
+          aria-label="Main navigation"
+        >
+          <a
+            href="#how"
+            className="transition hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+          >
             How it works
           </a>
-          <a href="#features" className="transition hover:text-ink-900">
+          <a
+            href="#features"
+            className="transition hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+          >
             Use cases
           </a>
-          <a href="#faq" className="transition hover:text-ink-900">
+          <a
+            href="#faq"
+            className="transition hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+          >
             FAQ
           </a>
+          <Link
+            href="/help"
+            className="transition hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+          >
+            Help
+          </Link>
+          <Link
+            href="/settings"
+            className="transition hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+          >
+            Settings
+          </Link>
         </nav>
-        <a
-          href="mailto:hello@imagesearchreverse.com"
-          className="rounded-full border border-ink-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-900 transition hover:bg-ink-900 hover:text-sand-100"
-        >
-          Talk to us
-        </a>
+
+        <div className="flex items-center gap-4">
+          <a
+            href="mailto:hello@imagesearchreverse.com"
+            className="hidden rounded-full border border-ink-900 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-900 transition hover:bg-ink-900 hover:text-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[44px] inline-flex items-center md:inline-flex"
+          >
+            Talk to us
+          </a>
+
+          {/* Mobile menu button */}
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="rounded-full border border-ink-900 p-2 text-ink-900 transition hover:bg-ink-900 hover:text-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 md:hidden min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-menu"
+            aria-label="Toggle navigation menu"
+          >
+            <svg
+              className="h-6 w-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              {mobileMenuOpen ? (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              ) : (
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M4 6h16M4 12h16M4 18h16"
+                />
+              )}
+            </svg>
+          </button>
+        </div>
+
+        {/* Mobile menu */}
+        {mobileMenuOpen && (
+          <div
+            id="mobile-menu"
+            className="absolute top-full left-0 right-0 z-50 mx-4 mt-2 rounded-3xl border border-sand-200 bg-white/95 p-6 shadow-xl md:hidden"
+            role="navigation"
+            aria-label="Mobile navigation"
+          >
+            <nav className="flex flex-col gap-4">
+              <a
+                href="#how"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                How it works
+              </a>
+              <a
+                href="#features"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                Use cases
+              </a>
+              <a
+                href="#faq"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                FAQ
+              </a>
+              <Link
+                href="/help"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                Help & Documentation
+              </Link>
+              <Link
+                href="/settings"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                Settings
+              </Link>
+              <hr className="border-sand-200" />
+              <a
+                href="mailto:hello@imagesearchreverse.com"
+                className="rounded-xl px-4 py-3 text-base font-semibold text-ink-900 transition hover:bg-sand-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+              >
+                Contact us
+              </a>
+            </nav>
+          </div>
+        )}
       </header>
 
-      <main className="relative mx-auto w-full max-w-6xl px-6 pb-24">
+      <main
+        id="main-content"
+        className="relative mx-auto w-full max-w-6xl px-6 pb-24"
+      >
+        <section className="py-10" id="search" aria-label="Search interface">
+          <SearchPanel />
+        </section>
+
         <section className="grid gap-10 py-10 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="space-y-6">
             <p className="inline-flex items-center gap-2 rounded-full border border-sand-200 bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700">
@@ -153,25 +292,25 @@ export default function Home() {
             <div className="flex flex-wrap gap-3">
               <a
                 href="#search"
-                className="rounded-full bg-ember-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-ember-500/30 transition hover:bg-ember-600"
+                className="rounded-full bg-ember-500 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-ember-500/30 transition hover:bg-ember-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[48px] inline-flex items-center"
               >
                 Start searching
               </a>
-              <a
-                href="mailto:hello@imagesearchreverse.com"
-                className="rounded-full border border-sand-300 bg-white px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-900 hover:text-ink-900"
+              <Link
+                href="/help"
+                className="rounded-full border border-sand-300 bg-white px-6 py-3 text-sm font-semibold text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ink-900 focus-visible:ring-offset-2 min-h-[48px] inline-flex items-center"
               >
-                View API docs
-              </a>
+                View help docs
+              </Link>
             </div>
             <div className="grid gap-4 rounded-3xl border border-sand-200 bg-white/70 p-5 text-sm text-ink-500 sm:grid-cols-3">
               <div>
-                <p className="text-2xl font-semibold text-ink-900">15s</p>
-                <p>Average turnaround</p>
+                <p className="text-2xl font-semibold text-ink-900">Instant</p>
+                <p>Engine links</p>
               </div>
               <div>
                 <p className="text-2xl font-semibold text-ink-900">10/day</p>
-                <p>Free daily searches</p>
+                <p>API fallback</p>
               </div>
               <div>
                 <p className="text-2xl font-semibold text-ink-900">100%</p>
@@ -218,10 +357,6 @@ export default function Home() {
           </div>
         </section>
 
-        <section className="py-10" id="search">
-          <SearchPanel />
-        </section>
-
         <section className="py-12" id="how">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h2 className="text-3xl font-semibold text-ink-900">
@@ -231,6 +366,11 @@ export default function Home() {
               Everything runs on Cloudflare Workers, R2, and KV. That means
               low-latency execution and zero cold starts.
             </p>
+          </div>
+          <div className="sr-only" role="status" aria-live="polite">
+            Step-by-step guide: Upload or paste an image URL, generate search
+            links for Google Lens, Yandex, and Bing, then optionally run API
+            fallback for structured results.
           </div>
           <div className="mt-8 grid gap-6 md:grid-cols-3">
             {steps.map((step, index) => (
@@ -257,7 +397,7 @@ export default function Home() {
             </h2>
             <Link
               href="#search"
-              className="text-sm font-semibold text-ember-600"
+              className="text-sm font-semibold text-ember-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
             >
               Run a search →
             </Link>
@@ -379,10 +519,22 @@ export default function Home() {
             reserved.
           </p>
           <div className="flex items-center gap-4">
-            <Link href="/privacy" className="hover:text-ink-900">
+            <Link
+              href="/help"
+              className="hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+            >
+              Help
+            </Link>
+            <Link
+              href="/privacy"
+              className="hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+            >
               Privacy
             </Link>
-            <Link href="/terms" className="hover:text-ink-900">
+            <Link
+              href="/terms"
+              className="hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 rounded-lg px-2 py-1"
+            >
               Terms
             </Link>
           </div>
