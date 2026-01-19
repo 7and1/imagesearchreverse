@@ -21,6 +21,7 @@ import { z } from "zod";
 import { createLogger } from "@/lib/logger";
 import { isAppError, errorToResponse } from "@/lib/errors";
 import { deduplicatedRequest } from "@/lib/request-deduplication";
+import { createRequestId } from "@/lib/request-id";
 
 export const runtime = "edge";
 
@@ -34,7 +35,7 @@ const CACHE_TTL_SECONDS = 60 * 60 * 48;
 const TASK_TTL_SECONDS = 60 * 60;
 
 export async function POST(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = request.headers.get("x-request-id") ?? createRequestId();
   const timing = logger.startTiming("POST /api/search");
 
   try {
@@ -195,7 +196,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = request.headers.get("x-request-id") ?? createRequestId();
   const timing = logger.startTiming("GET /api/search");
 
   try {

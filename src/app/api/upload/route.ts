@@ -7,6 +7,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { createLogger } from "@/lib/logger";
 import { isAppError, errorToResponse } from "@/lib/errors";
+import { createRequestId } from "@/lib/request-id";
 
 export const runtime = "edge";
 
@@ -53,7 +54,7 @@ const buildPublicUrl = (domain: string, key: string) => {
 };
 
 export async function POST(request: NextRequest) {
-  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  const requestId = request.headers.get("x-request-id") ?? createRequestId();
   const timing = logger.startTiming("POST /api/upload");
 
   try {

@@ -52,6 +52,25 @@ const getImageDimensions = (
   });
 };
 
+const parseJsonResponse = async <T extends { error?: string }>(
+  response: Response,
+): Promise<T> => {
+  const text = await response.text();
+  if (!text) return {} as T;
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.startsWith("<")) {
+      return {
+        error: `Unexpected response from server (status ${response.status}).`,
+      } as T;
+    }
+    return { error: trimmed } as T;
+  }
+};
+
 export default function SearchPanel() {
   const [mode, setMode] = useState<"upload" | "url">("upload");
   const [file, setFile] = useState<File | null>(null);
@@ -167,11 +186,11 @@ export default function SearchPanel() {
       body: formData,
     });
 
-    const data = (await response.json()) as {
+    const data = await parseJsonResponse<{
       url?: string;
       hash?: string;
       error?: string;
-    };
+    }>(response);
     if (!response.ok || !data.url) {
       throw new Error(data.error || "Upload failed.");
     }
@@ -193,9 +212,14 @@ export default function SearchPanel() {
       setPollProgress(progress);
 
       const response = await fetch(`/api/search?taskId=${id}`);
-      const data = (await response.json()) as SearchResponse;
+      const data = await parseJsonResponse<SearchResponse>(response);
 
       if (token !== pollTokenRef.current) return;
+      if (!response.ok && response.status !== 202) {
+        setStatus("error");
+        setError(data.error || "Search failed.");
+        return;
+      }
       if (response.status === 200 && data.results?.length) {
         setResults(data.results);
         setCheckUrl(data.checkUrl ?? null);
@@ -227,7 +251,7 @@ export default function SearchPanel() {
       }),
     });
 
-    const data = (await response.json()) as SearchResponse;
+    const data = await parseJsonResponse<SearchResponse>(response);
 
     if (response.status === 429) {
       throw new Error(data.error || "Rate limit reached.");
