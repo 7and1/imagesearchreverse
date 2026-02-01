@@ -1,0 +1,182 @@
+# ImageSearchReverse Alerting Rules
+# Prometheus alerting rules for monitoring application health
+
+groups:
+  - name: imagesearchreverse.availability
+    interval: 30s
+    rules:
+      # High-level availability alerts
+      - alert: ServiceDown
+        expr: up{job="imagesearchreverse"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ImageSearchReverse service is down"
+          description: "The application has been unreachable for more than 1 minute."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#service-down"
+
+      - alert: HealthCheckFailing
+        expr: health_check_status == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Health check failing for {{ $labels.service }}"
+          description: "The {{ $labels.service }} health check has been failing for more than 2 minutes."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#health-check-failing"
+
+      - alert: AllServicesUnhealthy
+        expr: sum(health_check_status) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "All backend services are unhealthy"
+          description: "KV, R2, and DataForSEO are all reporting unhealthy status."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#all-services-unhealthy"
+
+  - name: imagesearchreverse.latency
+    interval: 30s
+    rules:
+      - alert: HighRequestLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_ms_bucket[5m])) > 5000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High request latency detected"
+          description: "95th percentile request latency is above 5 seconds for the last 5 minutes."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#high-latency"
+
+      - alert: CriticalRequestLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_ms_bucket[5m])) > 10000
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical request latency"
+          description: "95th percentile request latency is above 10 seconds. Users are experiencing severe delays."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#critical-latency"
+
+      - alert: DataForSEOSlowResponse
+        expr: histogram_quantile(0.95, rate(dataforseo_duration_ms_bucket[5m])) > 8000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DataForSEO API responding slowly"
+          description: "DataForSEO API 95th percentile latency is above 8 seconds."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#dataforseo-slow"
+
+  - name: imagesearchreverse.errors
+    interval: 30s
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High error rate detected"
+          description: "More than 5% of requests are returning 5xx errors."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#high-error-rate"
+
+      - alert: CriticalErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Critical error rate"
+          description: "More than 20% of requests are returning 5xx errors. Service is severely degraded."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#critical-error-rate"
+
+      - alert: DataForSEOErrors
+        expr: rate(dataforseo_errors_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DataForSEO API errors increasing"
+          description: "DataForSEO API is returning errors at an elevated rate."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#dataforseo-errors"
+
+  - name: imagesearchreverse.circuit_breaker
+    interval: 30s
+    rules:
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{service="dataforseo"} == 2
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Circuit breaker is OPEN for DataForSEO"
+          description: "The circuit breaker has tripped due to repeated failures. Search functionality is degraded."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#circuit-breaker-open"
+
+      - alert: CircuitBreakerHalfOpen
+        expr: circuit_breaker_state{service="dataforseo"} == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Circuit breaker is HALF-OPEN for DataForSEO"
+          description: "The circuit breaker is testing if DataForSEO has recovered. Monitor closely."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#circuit-breaker-half-open"
+
+  - name: imagesearchreverse.rate_limiting
+    interval: 30s
+    rules:
+      - alert: HighRateLimitHits
+        expr: rate(rate_limit_hits_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: info
+        annotations:
+          summary: "Elevated rate limit hits"
+          description: "Users are hitting rate limits frequently. Consider adjusting limits or investigating abuse."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#rate-limit-hits"
+
+  - name: imagesearchreverse.cache
+    interval: 60s
+    rules:
+      - alert: LowCacheHitRate
+        expr: |
+          sum(cache_hits_total) / (sum(cache_hits_total) + sum(cache_misses_total)) < 0.3
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Cache hit rate is low"
+          description: "Cache hit rate is below 30%. This may indicate cache issues or unusual traffic patterns."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#low-cache-hit-rate"
+
+  - name: imagesearchreverse.search
+    interval: 30s
+    rules:
+      - alert: SearchSuccessRateLow
+        expr: |
+          sum(rate(search_requests_total{status="success"}[5m]))
+          / sum(rate(search_requests_total[5m])) < 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Search success rate is low"
+          description: "Less than 80% of search requests are succeeding. Investigate DataForSEO or upstream issues."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#search-success-low"
+
+      - alert: NoSearchRequests
+        expr: sum(rate(search_requests_total[10m])) == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "No search requests received"
+          description: "No search requests have been received in the last 30 minutes during expected traffic hours."
+          runbook_url: "https://github.com/your-org/imagesearchreverse/blob/main/RUNBOOK.md#no-traffic"

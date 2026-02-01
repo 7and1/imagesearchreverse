@@ -35,11 +35,8 @@ export class RequestDeduplicator {
   constructor(requestCooldownMs = 2000, maxPendingAgeMs = 30000) {
     this.requestCooldownMs = requestCooldownMs;
     this.maxPendingAgeMs = maxPendingAgeMs;
-
-    // Clean up expired pending requests periodically
-    if (typeof setInterval !== "undefined") {
-      setInterval(() => this.cleanup(), this.maxPendingAgeMs);
-    }
+    // Note: No periodic cleanup needed in serverless environment
+    // Each request is isolated, and cleanup happens on execute()
   }
 
   /**

@@ -505,7 +505,7 @@ describe("DataForSEO API calls", () => {
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
-    it("retries 3 times then throws on 404 errors (BUG: should not retry)", async () => {
+    it("does not retry on 404 errors (client errors)", async () => {
       const fetchSpy = vi
         .fn()
         .mockImplementation(() =>
@@ -517,8 +517,8 @@ describe("DataForSEO API calls", () => {
         postSearchByImageTask(env, "https://example.com/image.jpg"),
       ).rejects.toThrow(DataForSEOError);
 
-      // BUG: Currently retries 3 times on 404, but should only be called once
-      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      // Should only be called once - no retries on 4xx errors
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
     });
 
     it("handles network errors with retry", async () => {

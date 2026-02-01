@@ -36,7 +36,8 @@ const organizationSchema: Organization = {
     contactType: "customer service",
     email: "hello@imagesearchreverse.com",
   },
-  sameAs: [],
+  // sameAs: Add social media profile URLs when available
+  // e.g., "https://twitter.com/imagesearchreverse", "https://github.com/imagesearchreverse"
 };
 
 const faqSchema: FAQPage = {
@@ -132,13 +133,6 @@ const softwareApplicationSchema: SoftwareApplication = {
     priceCurrency: "USD",
     description: "Free tier with 10 searches per day",
   },
-  aggregateRating: {
-    "@type": "AggregateRating",
-    ratingValue: "4.8",
-    ratingCount: "156",
-    bestRating: "5",
-    worstRating: "1",
-  },
   description:
     "Reverse image search for publishers, creators, and brand teams. Upload a photo to uncover original sources, usage context, and visually similar matches.",
   featureList: [
@@ -159,29 +153,92 @@ const softwareApplicationSchema: SoftwareApplication = {
   },
 };
 
+// Helper to wrap schema with @context for JSON-LD output
+function withContext<T>(schema: T): { "@context": string } & T {
+  return { "@context": "https://schema.org", ...schema } as {
+    "@context": string;
+  } & T;
+}
+
+// HowTo schema for "How to reverse image search"
+const howToSchema = {
+  "@type": "HowTo" as const,
+  name: "How to Reverse Image Search",
+  description:
+    "Learn how to find the original source of any image using ImageSearchReverse. Follow these simple steps to discover where an image came from, find similar images, and track visual content across the web.",
+  totalTime: "PT1M",
+  estimatedCost: {
+    "@type": "MonetaryAmount" as const,
+    currency: "USD",
+    value: "0",
+  },
+  image: `${siteUrl}/og-image.png`,
+  step: [
+    {
+      "@type": "HowToStep" as const,
+      position: 1,
+      name: "Upload or paste your image",
+      text: "Click the upload area to select an image from your device, drag and drop an image file, or paste an image URL directly into the search box.",
+      image: `${siteUrl}/screenshot1.png`,
+    },
+    {
+      "@type": "HowToStep" as const,
+      position: 2,
+      name: "Wait for processing",
+      text: "Our system will analyze your image using advanced visual recognition algorithms. This typically takes 5-15 seconds depending on image size and server load.",
+    },
+    {
+      "@type": "HowToStep" as const,
+      position: 3,
+      name: "Review your results",
+      text: "Browse through the search results showing original sources, visually similar images, and websites where your image appears. Results are ranked by relevance and similarity score.",
+    },
+    {
+      "@type": "HowToStep" as const,
+      position: 4,
+      name: "Explore matches",
+      text: "Click on any result to visit the source website. Use the similarity scores to identify exact matches versus visually similar content.",
+    },
+  ],
+};
+
 export function StructuredData() {
   return (
     <>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(websiteSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }}
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(withContext(websiteSchema)),
+        }}
       />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify(softwareApplicationSchema),
+          __html: JSON.stringify(withContext(organizationSchema)),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(withContext(faqSchema)),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(withContext(breadcrumbSchema)),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(withContext(softwareApplicationSchema)),
+        }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify(withContext(howToSchema)),
         }}
       />
     </>

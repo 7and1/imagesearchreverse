@@ -1,7 +1,46 @@
 /**
  * Custom error types for backend error handling
  * Each error includes proper error codes, messages, and optional context
+ *
+ * SECURITY NOTE: Error context is split into two categories:
+ * - publicContext: Safe to expose in HTTP responses (user-facing)
+ * - internalContext: Only for logging, never exposed to clients
  */
+
+/**
+ * Keys that are safe to expose in HTTP responses
+ * All other context keys are considered internal/sensitive
+ */
+const PUBLIC_CONTEXT_KEYS = new Set([
+  "field", // Which field failed validation
+  "limit", // Rate limit info
+  "remaining", // Rate limit remaining
+  "resetAt", // Rate limit reset time
+  "timeout", // Whether it was a timeout
+  "operation", // Cache operation type
+]);
+
+/**
+ * Sanitize context for public exposure
+ * Only includes keys that are safe to show to users
+ */
+function sanitizeContextForResponse(
+  context?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  if (!context) return undefined;
+
+  const sanitized: Record<string, unknown> = {};
+  let hasKeys = false;
+
+  for (const key of PUBLIC_CONTEXT_KEYS) {
+    if (key in context && context[key] !== undefined) {
+      sanitized[key] = context[key];
+      hasKeys = true;
+    }
+  }
+
+  return hasKeys ? sanitized : undefined;
+}
 
 /**
  * Base error class for all custom errors
@@ -18,6 +57,9 @@ export class AppError extends Error {
     Error.captureStackTrace?.(this, this.constructor);
   }
 
+  /**
+   * Full error details for internal logging
+   */
   toJSON() {
     return {
       name: this.name,
@@ -25,6 +67,19 @@ export class AppError extends Error {
       code: this.code,
       statusCode: this.statusCode,
       context: this.context,
+    };
+  }
+
+  /**
+   * Sanitized error for HTTP responses - excludes sensitive context
+   */
+  toPublicJSON() {
+    return {
+      name: this.name,
+      message: this.message,
+      code: this.code,
+      statusCode: this.statusCode,
+      context: sanitizeContextForResponse(this.context),
     };
   }
 }
@@ -70,6 +125,20 @@ export class DataForSEOError extends AppError {
       (error.dfsStatusCode === 401 || error.dfsStatusCode === 403)
     );
   }
+
+  /**
+   * Check if error is a client error (4xx) that should not be retried
+   * Excludes 429 (rate limit) which can be retried after backoff
+   */
+  static isClientError(error: unknown): error is DataForSEOError {
+    return (
+      error instanceof DataForSEOError &&
+      error.dfsStatusCode !== undefined &&
+      error.dfsStatusCode >= 400 &&
+      error.dfsStatusCode < 500 &&
+      error.dfsStatusCode !== 429
+    );
+  }
 }
 
 /**
@@ -95,18 +164,19 @@ export class RateLimitError extends AppError {
 
 /**
  * Input validation errors
+ * SECURITY: Does not store the actual value to prevent leaking sensitive user input
  */
 export class ValidationError extends AppError {
   constructor(
     message: string,
     public readonly field?: string,
-    public readonly value?: unknown,
+    _value?: unknown, // Accepted but not stored for security
     context?: Record<string, unknown>,
   ) {
     super(message, "VALIDATION_ERROR", 400, {
       ...context,
       field,
-      value,
+      // Note: value is intentionally NOT stored to prevent sensitive data exposure
     });
     this.name = "ValidationError";
   }
@@ -154,7 +224,8 @@ export function isAppError(error: unknown): error is AppError {
 }
 
 /**
- * Format error for logging
+ * Format error for internal logging (includes all details)
+ * SECURITY: This output should NEVER be sent to clients
  */
 export function formatError(error: unknown): {
   message: string;
@@ -172,6 +243,7 @@ export function formatError(error: unknown): {
       code: "UNKNOWN_ERROR",
       context: {
         name: error.name,
+        // Stack trace included for logging only
         stack: error.stack,
       },
     };
@@ -185,6 +257,10 @@ export function formatError(error: unknown): {
 
 /**
  * Convert error to HTTP response data
+ * SECURITY: This function sanitizes error output for client exposure
+ * - Removes sensitive context fields
+ * - Removes stack traces
+ * - Uses generic message for unknown errors
  */
 export function errorToResponse(error: unknown): {
   error: string;
@@ -192,16 +268,17 @@ export function errorToResponse(error: unknown): {
   context?: Record<string, unknown>;
 } {
   if (isAppError(error)) {
+    const publicData = error.toPublicJSON();
     return {
-      error: error.message,
-      code: error.code,
-      context: error.context,
+      error: publicData.message,
+      code: publicData.code,
+      context: publicData.context,
     };
   }
 
+  // For unknown errors, return a generic message to avoid leaking internal details
   return {
-    error:
-      error instanceof Error ? error.message : "An unexpected error occurred",
+    error: "An unexpected error occurred",
     code: "UNKNOWN_ERROR",
   };
 }

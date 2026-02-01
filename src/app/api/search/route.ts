@@ -33,12 +33,25 @@ const TaskQuerySchema = z.object({
 
 const CACHE_TTL_SECONDS = 60 * 60 * 48;
 const TASK_TTL_SECONDS = 60 * 60;
+const MAX_REQUEST_BODY_SIZE = 10 * 1024; // 10KB limit for search requests
 
 export async function POST(request: NextRequest) {
   const requestId = request.headers.get("x-request-id") ?? createRequestId();
   const timing = logger.startTiming("POST /api/search");
 
   try {
+    // Check request body size
+    const contentLength = request.headers.get("content-length");
+    if (contentLength && parseInt(contentLength) > MAX_REQUEST_BODY_SIZE) {
+      const response = NextResponse.json(
+        { error: "Request too large. Please use a smaller image or provide a URL instead." },
+        { status: 413 }
+      );
+      response.headers.set("X-Request-Id", requestId);
+      timing.end({ requestId, status: 413, reason: "body_too_large" });
+      return response;
+    }
+
     const env = getEnv();
     const { imageUrl, imageHash, turnstileToken } =
       await parseImageSearchInput(request);
@@ -60,7 +73,7 @@ export async function POST(request: NextRequest) {
 
     if (!turnstile.ok) {
       const response = NextResponse.json(
-        { error: turnstile.error ?? "Turnstile verification failed." },
+        { error: turnstile.error ?? "Security verification failed. Please refresh the page and try again." },
         { status: 403 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -76,9 +89,14 @@ export async function POST(request: NextRequest) {
       timing.addMetric("rateLimit", rateLimitStart);
 
       if (!rate.allowed) {
+        // Calculate seconds until rate limit resets
+        const resetTime = new Date(rate.resetAt).getTime();
+        const now = Date.now();
+        const retryAfterSeconds = Math.max(1, Math.ceil((resetTime - now) / 1000));
+
         const response = NextResponse.json(
           {
-            error: "Daily limit reached. Please try again tomorrow.",
+            error: "Daily search limit reached. Your limit resets at midnight UTC. Contact us for higher limits.",
             resetAt: rate.resetAt,
           },
           {
@@ -87,6 +105,7 @@ export async function POST(request: NextRequest) {
               "X-RateLimit-Limit": String(rate.limit),
               "X-RateLimit-Remaining": String(rate.remaining),
               "X-RateLimit-Reset": rate.resetAt,
+              "Retry-After": String(retryAfterSeconds),
             },
           },
         );
@@ -206,7 +225,7 @@ export async function GET(request: NextRequest) {
 
     if (!parsed.success) {
       const response = NextResponse.json(
-        { error: "Missing taskId." },
+        { error: "Missing task ID. Please start a new search." },
         { status: 400 },
       );
       response.headers.set("X-Request-Id", requestId);

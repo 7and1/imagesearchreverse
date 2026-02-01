@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import SearchPanel from "@/components/search-panel";
+import SearchPanelWithErrorBoundary from "@/components/search-panel-wrapper";
 import { useState } from "react";
 
 const features = [
@@ -254,7 +254,7 @@ export default function Home() {
         className="relative mx-auto w-full max-w-6xl px-6 pb-24"
       >
         <section className="py-10" id="search" aria-label="Search interface">
-          <SearchPanel />
+          <SearchPanelWithErrorBoundary />
         </section>
 
         <section className="grid gap-10 py-10 lg:grid-cols-[1.1fr_0.9fr]">

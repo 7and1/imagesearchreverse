@@ -10,6 +10,25 @@ Production-ready reverse image search built for a full Cloudflare stack (Pages +
 - **Accessibility First**: WCAG 2.1 AA compliant, full keyboard navigation
 - **Privacy Focused**: Temporary storage, rate limiting, no data selling
 - **Developer API**: RESTful API for programmatic access
+- **Circuit Breaker**: Fault tolerance for external API failures
+- **Health Monitoring**: Comprehensive health check endpoint
+
+## Architecture
+
+```
++------------------+     +-------------------+     +------------------+
+|                  |     |                   |     |                  |
+|  Browser/Client  +---->+  Cloudflare Edge  +---->+  DataForSEO API  |
+|                  |     |  (Pages/Workers)  |     |                  |
++------------------+     +--------+----------+     +------------------+
+                                  |
+                    +-------------+-------------+
+                    |             |             |
+              +-----v----+  +----v-----+  +----v-----+
+              |    R2    |  |    KV    |  | Turnstile|
+              |  Bucket  |  | Storage  |  |  CAPTCHA |
+              +----------+  +----------+  +----------+
+```
 
 ## Stack
 
@@ -19,7 +38,7 @@ Production-ready reverse image search built for a full Cloudflare stack (Pages +
 - **KV** for rate limiting and caching
 - **DataForSEO** for reverse image search
 - **TypeScript** for type safety
-- **Vitest** for testing (162 tests)
+- **Vitest** for testing
 
 ## Requirements
 
@@ -34,7 +53,7 @@ Production-ready reverse image search built for a full Cloudflare stack (Pages +
 npm install --legacy-peer-deps
 
 # Copy environment variables
-cp .env.example .env.local
+cp .dev.vars.example .dev.vars
 
 # Start development server
 npm run dev
@@ -58,9 +77,29 @@ NEXT_PUBLIC_SITE_URL=https://imagesearchreverse.com
 # Turnstile CAPTCHA (optional, enables anti-abuse)
 TURNSTILE_SECRET_KEY=0x4AAA...
 NEXT_PUBLIC_TURNSTILE_SITE_KEY=0x4AAA...
+```
 
-# Google Search Console (optional)
-GOOGLE_SITE_VERIFICATION=your_token
+## Commands
+
+```bash
+# Development
+npm run dev              # Start dev server
+
+# Quality
+npm run lint             # ESLint checks
+npm run typecheck        # TypeScript validation
+npm run test             # Run tests
+
+# Build
+npm run build            # Local Next.js build
+npm run pages:build      # Build for Cloudflare Pages
+
+# Deployment
+npm run deploy           # Deploy to production
+npm run deploy:rollback  # Rollback to previous version
+./deploy.sh staging      # Deploy to staging
+./deploy.sh validate     # Validate build only
+./deploy.sh health       # Check health endpoint
 ```
 
 ## Deployment
@@ -82,41 +121,7 @@ Configure these in Cloudflare Pages dashboard or `wrangler.toml`:
 3. **Environment Variables**: All non-public env vars
 4. **Secrets**: `TURNSTILE_SECRET_KEY`, `DFS_*` credentials
 
-## Testing
-
-```bash
-# Run tests
-npm run test
-
-# Type checking
-npm run typecheck
-
-# Linting
-npm run lint
-
-# Build verification
-npm run build
-```
-
-## Documentation
-
-- **`QUICK_START.md`** - Quick start guide
-- **`PERFORMANCE.md`** - Performance optimization details
-- **`PWA_INSTALLATION.md`** - User installation guide
-- **`ICON_REQUIREMENTS.md`** - Icon creation guidelines
-- **`IMPLEMENTATION_SUMMARY.md`** - Technical implementation details
-
 ## API Reference
-
-### POST /api/search
-
-Search by uploaded image.
-
-```bash
-curl -X POST https://imagesearchreverse.com/api/search \
-  -F "image=@photo.jpg" \
-  -F "turnstile=token"
-```
 
 ### POST /api/search
 
@@ -128,7 +133,16 @@ curl -X POST https://imagesearchreverse.com/api/search \
   -d '{"imageUrl": "https://example.com/image.jpg"}'
 ```
 
-### GET /api/search
+### POST /api/upload
+
+Upload an image for searching.
+
+```bash
+curl -X POST https://imagesearchreverse.com/api/upload \
+  -F "file=@photo.jpg"
+```
+
+### GET /api/search?taskId={id}
 
 Check search status by task ID.
 
@@ -136,16 +150,42 @@ Check search status by task ID.
 curl https://imagesearchreverse.com/api/search?taskId=abc123
 ```
 
-## Pages
+### GET /api/health
 
-| Route | Description |
-|-------|-------------|
-| `/` | Main search interface |
-| `/help` | Help documentation and FAQ |
-| `/settings` | User preferences |
-| `/privacy` | Privacy policy |
-| `/terms` | Terms of service |
-| `/manifest.webmanifest` | PWA manifest |
+Health check endpoint.
+
+```bash
+curl https://imagesearchreverse.com/api/health
+```
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | System architecture and design decisions |
+| [DEPLOYMENT.md](./DEPLOYMENT.md) | Deployment guide and Cloudflare setup |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Contribution guidelines |
+| [CLAUDE.md](./CLAUDE.md) | AI assistant guidance |
+| [QUICK_START.md](./QUICK_START.md) | Quick start guide |
+| [PERFORMANCE.md](./PERFORMANCE.md) | Performance optimization details |
+| [PWA_INSTALLATION.md](./PWA_INSTALLATION.md) | User installation guide |
+
+## Security Features
+
+- **SSRF Protection**: Cloud metadata endpoint blocking, DNS rebinding protection
+- **Rate Limiting**: Atomic operations prevent race conditions
+- **Input Sanitization**: Path traversal prevention, hash collision detection
+- **IP Validation**: Spoofing protection, trusted proxy validation
+- **CSP Headers**: Strict content security policy
+- **Credential Safety**: No credential leakage in errors
+- **Circuit Breaker**: Prevents cascading failures
+
+## Performance
+
+- **Bundle Size**: ~100 KB (47% reduction from baseline)
+- **First Load JS**: ~115 KB for main page
+- **Lighthouse Score**: ~92
+- **Edge Rendering**: Sub-second TTI
 
 ## Keyboard Shortcuts
 
@@ -156,22 +196,6 @@ curl https://imagesearchreverse.com/api/search?taskId=abc123
 | `Ctrl+Enter` | Submit search |
 | `Esc` | Close modals |
 | `Ctrl+Shift+?` | Toggle shortcuts help |
-
-## Security Features
-
-- **SSRF Protection**: Cloud metadata endpoint blocking, DNS rebinding protection
-- **Rate Limiting**: Atomic operations prevent race conditions
-- **Input Sanitization**: Path traversal prevention, hash collision detection
-- **IP Validation**: Spoofing protection, trusted proxy validation
-- **CSP Headers**: Strict content security policy
-- **Credential Safety**: No credential leakage in errors
-
-## Performance
-
-- **Bundle Size**: 102 KB (47% reduction from baseline)
-- **First Load JS**: 114 KB for main page
-- **Lighthouse Score**: ~92
-- **Edge Rendering**: Sub-second TTI
 
 ## License
 

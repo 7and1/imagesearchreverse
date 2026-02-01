@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     const env = getEnv();
     if (!env.R2_BUCKET) {
       const response = NextResponse.json(
-        { error: "R2 bucket binding is missing." },
+        { error: "Storage service unavailable. Please try again later." },
         { status: 500 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
       if (!uploadQuota.allowed) {
         const response = NextResponse.json(
           {
-            error: "Daily upload quota exceeded. Please try again tomorrow.",
+            error: "Daily upload limit reached. Your limit resets at midnight UTC.",
             resetAt: uploadQuota.resetAt,
           },
           {
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       if (!rate.allowed) {
         const response = NextResponse.json(
           {
-            error: "Upload limit reached. Please try again tomorrow.",
+            error: "Upload limit reached. Your limit resets at midnight UTC.",
             resetAt: rate.resetAt,
           },
           {
@@ -150,7 +150,7 @@ export async function POST(request: NextRequest) {
 
     if (!turnstile.ok) {
       const response = NextResponse.json(
-        { error: turnstile.error ?? "Turnstile verification failed." },
+        { error: turnstile.error ?? "Security verification failed. Please refresh the page and try again." },
         { status: 403 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) {
 
     if (!(file instanceof File)) {
       const response = NextResponse.json(
-        { error: "No file uploaded." },
+        { error: "No file selected. Please choose an image to upload." },
         { status: 400 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -171,7 +171,7 @@ export async function POST(request: NextRequest) {
     // Validate file size before reading buffer (prevent DOS)
     if (file.size > MAX_FILE_SIZE) {
       const response = NextResponse.json(
-        { error: "File exceeds 8MB limit." },
+        { error: "File too large. Maximum size is 8MB. Try compressing your image first." },
         { status: 413 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -182,7 +182,7 @@ export async function POST(request: NextRequest) {
     // Validate file size is not suspiciously small (empty files)
     if (file.size === 0) {
       const response = NextResponse.json(
-        { error: "File is empty." },
+        { error: "File appears to be empty. Please select a valid image file." },
         { status: 400 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -208,7 +208,7 @@ export async function POST(request: NextRequest) {
         actualSize: buffer.byteLength,
       });
       const response = NextResponse.json(
-        { error: "File size verification failed." },
+        { error: "Could not verify file size. Please try uploading again." },
         { status: 400 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
 
     if (!detectedType || !ALLOWED_TYPES.has(detectedType)) {
       const response = NextResponse.json(
-        { error: "Unsupported file type." },
+        { error: "Unsupported file type. Please use JPEG, PNG, WebP, GIF, or BMP images." },
         { status: 415 },
       );
       response.headers.set("X-Request-Id", requestId);
@@ -237,7 +237,7 @@ export async function POST(request: NextRequest) {
         detectedType,
       });
       const response = NextResponse.json(
-        { error: "File type mismatch." },
+        { error: "File content does not match its extension. Please upload a valid image file." },
         { status: 415 },
       );
       response.headers.set("X-Request-Id", requestId);

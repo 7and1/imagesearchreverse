@@ -92,3 +92,90 @@ Optional:
 - Bindings must be configured in Cloudflare Pages dashboard (KV + R2)
 - Build output goes to `.vercel/output/static`
 - CI/CD via `.github/workflows/`
+- Use `./deploy.sh` for manual deployments with pre-flight checks
+
+## Testing Strategy
+
+### Test Organization
+- Tests are co-located with source files (`*.test.ts` next to `*.ts`)
+- Test setup in `src/test/setup.ts`
+- Use Vitest with `vi.mock()` for mocking Cloudflare bindings
+
+### Running Tests
+```bash
+npm run test              # Run all tests
+npm run test -- --watch   # Watch mode
+npm run test -- --coverage # With coverage
+```
+
+### Mocking Cloudflare Bindings
+```typescript
+const mockKV = {
+  get: vi.fn(),
+  put: vi.fn(),
+  delete: vi.fn(),
+};
+vi.mock("@/lib/cf-env", () => ({
+  getEnv: () => ({ KV_RATE_LIMIT: mockKV }),
+}));
+```
+
+## Code Patterns
+
+### Error Handling
+- Use `AppError` class from `lib/errors.ts` for typed errors
+- Always include `requestId` in error responses
+- Never expose internal error details to clients
+
+### API Route Pattern
+```typescript
+export const runtime = "edge";
+
+export async function POST(request: NextRequest) {
+  const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+  try {
+    // Validate input with Zod
+    // Check rate limit
+    // Process request
+    // Return response with requestId header
+  } catch (error) {
+    // Handle and log error
+  }
+}
+```
+
+### Circuit Breaker Usage
+```typescript
+import { dataForSEOCircuitBreaker } from "@/lib/circuit-breaker";
+
+const result = await dataForSEOCircuitBreaker.execute(
+  () => fetchFromDataForSEO(url),
+  "DataForSEO search"
+);
+```
+
+## Troubleshooting
+
+### Common Development Issues
+
+**KV/R2 bindings undefined in dev**
+- Ensure `.dev.vars` exists with required variables
+- Check `setupDevPlatform()` is called in `next.config.ts`
+- Restart dev server after changing `.dev.vars`
+
+**Type errors with Cloudflare types**
+- Use `@cloudflare/workers-types` for KV/R2 types
+- Import types from `@/lib/cf-env` for `AppEnv`
+
+**Tests failing with "fetch is not defined"**
+- Vitest runs in Node, not edge runtime
+- Mock fetch in test setup or use `vi.stubGlobal`
+
+**Build fails with "Dynamic server usage"**
+- Ensure all API routes have `export const runtime = "edge"`
+- Check for accidental use of Node.js APIs
+
+### Debugging Tips
+- Use `createLogger()` from `lib/logger.ts` for structured logs
+- Check Cloudflare Pages logs in dashboard for production issues
+- Use `/api/health` endpoint to verify bindings are working

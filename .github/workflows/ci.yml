@@ -1,12 +1,18 @@
-name: CI
+name: CI/CD
 
 on:
   push:
     branches: ["main"]
   pull_request:
+    branches: ["main"]
+
+env:
+  NODE_VERSION: "20"
 
 jobs:
-  build:
+  # Quality checks run in parallel
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -15,20 +21,278 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Lint
+      - name: Run ESLint
         run: npm run lint
 
-      - name: Typecheck
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run TypeScript
         run: npm run typecheck
 
-      - name: Test
-        run: npm run test
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Build
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run tests with coverage
+        run: npm run test -- --coverage --reporter=verbose
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+      - name: Coverage summary
+        if: always()
+        run: |
+          if [ -f coverage/coverage-summary.json ]; then
+            echo "## Test Coverage Summary" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Metric | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|--------|----------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Lines | $(jq -r '.total.lines.pct' coverage/coverage-summary.json)% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Statements | $(jq -r '.total.statements.pct' coverage/coverage-summary.json)% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Functions | $(jq -r '.total.functions.pct' coverage/coverage-summary.json)% |" >> $GITHUB_STEP_SUMMARY
+            echo "| Branches | $(jq -r '.total.branches.pct' coverage/coverage-summary.json)% |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Run npm audit
+        run: npm audit --audit-level=high
+        continue-on-error: false
+
+      - name: Security summary
+        if: always()
+        run: |
+          echo "## Security Audit" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          npm audit --json 2>/dev/null | jq -r '
+            if .metadata.vulnerabilities.high > 0 or .metadata.vulnerabilities.critical > 0 then
+              "⚠️ Found \(.metadata.vulnerabilities.high) high and \(.metadata.vulnerabilities.critical) critical vulnerabilities"
+            else
+              "✅ No high or critical vulnerabilities found"
+            end
+          ' >> $GITHUB_STEP_SUMMARY || echo "✅ Audit completed" >> $GITHUB_STEP_SUMMARY
+
+  # Build job depends on all quality checks
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test, security]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build application
         run: npm run build
+
+      - name: Build for Cloudflare Pages
+        run: npm run pages:build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output
+          path: .vercel/output/static
+          retention-days: 1
+
+      - name: Report bundle size
+        run: |
+          echo "## Bundle Size Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Directory | Size |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|------|" >> $GITHUB_STEP_SUMMARY
+          if [ -d ".vercel/output/static" ]; then
+            total_size=$(du -sh .vercel/output/static | cut -f1)
+            echo "| Total | $total_size |" >> $GITHUB_STEP_SUMMARY
+            if [ -d ".vercel/output/static/_next/static" ]; then
+              js_size=$(du -sh .vercel/output/static/_next/static 2>/dev/null | cut -f1 || echo "N/A")
+              echo "| Static Assets | $js_size |" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi
+
+  # Deploy to staging on PR
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'pull_request'
+    environment:
+      name: staging
+      url: https://staging.imagesearchreverse.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .vercel/output/static
+
+      - name: Deploy to Cloudflare Pages (Staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy .vercel/output/static --project-name=imagesearchreverse-staging --branch=staging
+        env:
+          DFS_LOGIN: ${{ secrets.DFS_LOGIN }}
+          DFS_PASSWORD: ${{ secrets.DFS_PASSWORD }}
+          DFS_ENDPOINT_POST: ${{ secrets.DFS_ENDPOINT_POST }}
+          DFS_ENDPOINT_GET: ${{ secrets.DFS_ENDPOINT_GET }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+      - name: Comment PR with staging URL
+        uses: actions/github-script@v7
+        if: success()
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '🚀 **Staging deployment ready!**\n\nPreview URL: https://staging.imagesearchreverse.com\n\nThis deployment will be updated with each push to this PR.'
+            })
+
+  # Deploy to production on merge to main
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production
+      url: https://imagesearchreverse.com
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output
+          path: .vercel/output/static
+
+      - name: Deploy to Cloudflare Pages (Production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy .vercel/output/static --project-name=imagesearchreverse
+        env:
+          DFS_LOGIN: ${{ secrets.DFS_LOGIN }}
+          DFS_PASSWORD: ${{ secrets.DFS_PASSWORD }}
+          DFS_ENDPOINT_POST: ${{ secrets.DFS_ENDPOINT_POST }}
+          DFS_ENDPOINT_GET: ${{ secrets.DFS_ENDPOINT_GET }}
+          TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+
+      - name: Health check
+        run: |
+          echo "Waiting for deployment to propagate..."
+          sleep 10
+
+          max_retries=5
+          retry=0
+
+          while [ $retry -lt $max_retries ]; do
+            status=$(curl -s -o /dev/null -w "%{http_code}" https://imagesearchreverse.com/api/health --max-time 10 || echo "000")
+
+            if [ "$status" = "200" ]; then
+              echo "✅ Health check passed"
+              echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "✅ **Production deployment successful!**" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "🌐 Site: https://imagesearchreverse.com" >> $GITHUB_STEP_SUMMARY
+              exit 0
+            fi
+
+            retry=$((retry + 1))
+            echo "Health check attempt $retry/$max_retries failed (status: $status)"
+            sleep 5
+          done
+
+          echo "⚠️ Health check failed after $max_retries attempts"
+          echo "## Deployment Status" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ **Deployment completed but health check failed**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please verify the deployment manually." >> $GITHUB_STEP_SUMMARY
+          exit 1
+
+  # Notify on failure
+  notify-failure:
+    name: Notify on Failure
+    runs-on: ubuntu-latest
+    needs: [deploy-production]
+    if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Create failure summary
+        run: |
+          echo "## ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The production deployment has failed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Actions to take:**" >> $GITHUB_STEP_SUMMARY
+          echo "1. Check the workflow logs for errors" >> $GITHUB_STEP_SUMMARY
+          echo "2. Consider rolling back if the site is down" >> $GITHUB_STEP_SUMMARY
+          echo "3. Fix the issue and push a new commit" >> $GITHUB_STEP_SUMMARY

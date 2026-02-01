@@ -1,4 +1,31 @@
 import Link from "next/link";
+import type { Metadata } from "next";
+
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://imagesearchreverse.com";
+
+export const metadata: Metadata = {
+  title: "Help & Documentation - How to Reverse Image Search",
+  description:
+    "Complete guide to using ImageSearchReverse for reverse image search. Step-by-step instructions, keyboard shortcuts, troubleshooting tips, and answers to frequently asked questions about finding image sources.",
+  keywords: [
+    "reverse image search help",
+    "how to reverse image search",
+    "image search tutorial",
+    "find image source guide",
+    "reverse image search FAQ",
+    "image search troubleshooting",
+  ],
+  alternates: {
+    canonical: `${siteUrl}/help`,
+  },
+  openGraph: {
+    title: "Help & Documentation - How to Reverse Image Search",
+    description:
+      "Complete guide to using ImageSearchReverse. Learn how to find image sources, use keyboard shortcuts, and get the most out of your searches.",
+    url: `${siteUrl}/help`,
+  },
+};
 
 type ContentItem =
   | { type: "step"; number: number; title: string; description: string }
@@ -6,7 +33,8 @@ type ContentItem =
   | { type: "issue"; title: string; solution: string }
   | { type: "info"; title: string; description: string }
   | { type: "feature"; features: string[] }
-  | { type: "cta"; text: string; email: string };
+  | { type: "cta"; text: string; email: string }
+  | { type: "shortcut"; key: string; description: string; modifier?: string };
 
 type Section = {
   id: string;
@@ -153,6 +181,42 @@ const sections: Section[] = [
         title: "Security check (CAPTCHA) keeps failing",
         solution:
           "Ensure JavaScript is enabled and cookies are allowed for our domain. Disable any aggressive privacy extensions or VPNs that might interfere with the CAPTCHA. If issues persist, try a different browser or device.",
+      },
+    ],
+  },
+  {
+    id: "keyboard-shortcuts",
+    title: "Keyboard Shortcuts",
+    icon: "⌨️",
+    content: [
+      {
+        type: "shortcut",
+        modifier: "Ctrl",
+        key: "U",
+        description: "Open file upload dialog to select an image from your device",
+      },
+      {
+        type: "shortcut",
+        modifier: "Ctrl",
+        key: "V",
+        description: "Focus the URL input field to paste an image URL",
+      },
+      {
+        type: "shortcut",
+        modifier: "Ctrl",
+        key: "Enter",
+        description: "Submit the current search form",
+      },
+      {
+        type: "shortcut",
+        key: "Escape",
+        description: "Close any open modal or dialog",
+      },
+      {
+        type: "shortcut",
+        modifier: "Ctrl+Shift",
+        key: "?",
+        description: "Toggle keyboard shortcuts help panel",
       },
     ],
   },
@@ -467,6 +531,26 @@ export default function HelpPage() {
                   );
                 }
 
+                if (item.type === "shortcut") {
+                  return (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between py-3 [&:not(:last-child)]:border-b border-sand-200"
+                    >
+                      <span className="text-ink-700">{item.description}</span>
+                      <kbd className="inline-flex items-center gap-1 rounded-lg border border-sand-300 bg-sand-100 px-3 py-1.5 font-mono text-sm text-ink-600">
+                        {item.modifier && (
+                          <>
+                            <span>{item.modifier}</span>
+                            <span className="text-ink-400">+</span>
+                          </>
+                        )}
+                        <span>{item.key}</span>
+                      </kbd>
+                    </div>
+                  );
+                }
+
                 return null;
               })}
             </div>
@@ -513,6 +597,9 @@ export default function HelpPage() {
                           <img
                             src={image.url}
                             alt={image.alt}
+                            loading="lazy"
+                            width={200}
+                            height={200}
                             className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                           />
                         </div>

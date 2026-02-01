@@ -145,7 +145,8 @@ export class MockKVNamespace {
  * Mock Cloudflare R2 Bucket
  */
 export class MockR2Bucket {
-  private store = new Map<string, Uint8Array>();
+  // Public store for test assertions
+  public store = new Map<string, Uint8Array>();
   private metadataStore = new Map<
     string,
     { httpMetadata?: unknown; customMetadata?: unknown }
@@ -296,6 +297,7 @@ export const createMockEnv = (): AppEnv => ({
 
 /**
  * Create a mock NextRequest
+ * Returns a Request with nextUrl property for Next.js compatibility
  */
 export const createMockRequest = (
   options: {
@@ -306,7 +308,7 @@ export const createMockRequest = (
     cfConnectingIp?: string;
     xForwardedFor?: string;
   } = {},
-): Request => {
+): Request & { nextUrl: URL } => {
   const {
     url = "https://example.com",
     method = "GET",
@@ -331,7 +333,16 @@ export const createMockRequest = (
     init.body = JSON.stringify(body);
   }
 
-  return new Request(url, init);
+  const request = new Request(url, init);
+
+  // Add nextUrl property for Next.js NextRequest compatibility
+  const nextUrl = new URL(url);
+  Object.defineProperty(request, "nextUrl", {
+    value: nextUrl,
+    writable: false,
+  });
+
+  return request as Request & { nextUrl: URL };
 };
 
 /**

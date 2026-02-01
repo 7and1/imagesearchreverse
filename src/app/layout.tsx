@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Fraunces, JetBrains_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { StructuredData } from "./structured-data";
+import { Toaster } from "@/components/toaster";
 
 const displayFont = Fraunces({
   variable: "--font-display",
@@ -20,7 +21,8 @@ const bodyFont = Space_Grotesk({
 const monoFont = JetBrains_Mono({
   variable: "--font-mono",
   subsets: ["latin"],
-  display: "swap",
+  display: "optional", // Non-critical font - use optional to prevent layout shift
+  preload: false, // Don't preload mono font - only used in code snippets
 });
 
 const siteUrl =
@@ -66,11 +68,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
+      { url: "/favicon.ico", sizes: "32x32", type: "image/x-icon" },
       { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
       { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
     ],
     apple: [
-      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
     ],
   },
   openGraph: {
@@ -96,7 +99,7 @@ export const metadata: Metadata = {
     description:
       "Upload an image and instantly locate the original source, top matches, and visual footprints across the web. Fast, accurate, and privacy-focused.",
     images: [`${siteUrl}/og-image.png`],
-    creator: "@imagesearchreverse",
+    // creator: "@imagesearchreverse", // Uncomment when Twitter account is created
   },
   alternates: {
     canonical: siteUrl,
@@ -134,6 +137,23 @@ export default function RootLayout({
       className={`${displayFont.variable} ${bodyFont.variable} ${monoFont.variable} scroll-smooth`}
     >
       <head>
+        {/* Preconnect to Google Fonts for faster font loading */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.gstatic.com"
+          crossOrigin="anonymous"
+        />
+        {/* Preconnect to Cloudflare Turnstile for faster CAPTCHA loading */}
+        <link rel="preconnect" href="https://challenges.cloudflare.com" />
+        {/* DNS prefetch for R2 bucket (image storage) */}
+        <link
+          rel="dns-prefetch"
+          href={process.env.NEXT_PUBLIC_R2_DOMAIN ? `https://${process.env.NEXT_PUBLIC_R2_DOMAIN}` : ""}
+        />
+        {/* Prefetch likely navigation targets */}
+        <link rel="prefetch" href="/help" />
+        <link rel="prefetch" href="/privacy" />
         <StructuredData />
       </head>
       <body className="min-h-screen bg-sand-100 text-ink-900 antialiased">
@@ -145,6 +165,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         {children}
+        <Toaster />
       </body>
     </html>
   );

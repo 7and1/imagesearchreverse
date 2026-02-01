@@ -25,6 +25,7 @@ type TurnstileWidgetProps = {
   siteKey: string;
   onVerify: (token: string) => void;
   onExpire: () => void;
+  onError?: (error: string) => void;
   resetKey?: number;
 };
 
@@ -49,26 +50,35 @@ export default function TurnstileWidget({
   siteKey,
   onVerify,
   onExpire,
+  onError,
   resetKey,
 }: TurnstileWidgetProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const widgetIdRef = useRef<string | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
     if (!siteKey) return;
 
     let cancelled = false;
+    const handleError = () => {
+      setHasError(true);
+      onExpire();
+      onError?.("Security check failed to load. Please refresh the page.");
+    };
+
     const render = () => {
       if (cancelled || !containerRef.current || !window.turnstile) return;
       if (widgetIdRef.current) {
         window.turnstile.remove(widgetIdRef.current);
       }
+      setHasError(false);
       widgetIdRef.current = window.turnstile.render(containerRef.current, {
         sitekey: siteKey,
         callback: onVerify,
         "expired-callback": onExpire,
-        "error-callback": onExpire,
+        "error-callback": handleError,
       });
       setIsLoaded(true);
     };
@@ -92,7 +102,7 @@ export default function TurnstileWidget({
       }
       widgetIdRef.current = null;
     };
-  }, [siteKey, onVerify, onExpire]);
+  }, [siteKey, onVerify, onExpire, onError]);
 
   useEffect(() => {
     if (!window.turnstile || !widgetIdRef.current) return;
@@ -101,9 +111,14 @@ export default function TurnstileWidget({
 
   return (
     <div ref={containerRef} className="turnstile">
-      {!isLoaded && (
+      {!isLoaded && !hasError && (
         <div className="flex h-12 w-full items-center justify-center bg-sand-200 rounded-lg animate-pulse">
           <span className="text-xs text-ink-500">Loading security check...</span>
+        </div>
+      )}
+      {hasError && (
+        <div className="flex h-12 w-full items-center justify-center bg-red-50 border border-red-200 rounded-lg">
+          <span className="text-xs text-red-600">Security check failed. Please refresh.</span>
         </div>
       )}
     </div>

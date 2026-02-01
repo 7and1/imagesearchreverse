@@ -1,26 +1,43 @@
 "use client";
 
+import { toast } from "sonner";
 import { SearchResult } from "./search-panel";
+import { trackEvent, ANALYTICS_EVENTS } from "@/lib/analytics";
 
 type ExportActionsProps = {
   results: SearchResult[];
   imageUrl: string;
 };
 
+/**
+ * Properly escape a value for CSV format
+ * - Wrap in quotes if contains comma, quote, or newline
+ * - Escape internal quotes by doubling them
+ */
+function escapeCSV(value: string | undefined | null): string {
+  if (value == null) return "";
+  const str = String(value);
+  // If contains special characters, wrap in quotes and escape internal quotes
+  if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
 export default function ExportActions({ results, imageUrl }: ExportActionsProps) {
   const exportCSV = () => {
     const headers = ["Title", "URL", "Domain", "Image URL"];
     const rows = results.map((r) => [
-      `"${r.title}"`,
-      `"${r.pageUrl}"`,
-      `"${r.domain ?? ""}"`,
-      `"${r.imageUrl ?? ""}"`,
+      escapeCSV(r.title),
+      escapeCSV(r.pageUrl),
+      escapeCSV(r.domain),
+      escapeCSV(r.imageUrl),
     ]);
 
-    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join(
-      "\n",
-    );
-    downloadFile(csv, "search-results.csv", "text/csv");
+    const csv = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+    downloadFile(csv, "search-results.csv", "text/csv;charset=utf-8");
+    toast.success("CSV exported successfully");
+    trackEvent(ANALYTICS_EVENTS.EXPORT_CSV, { resultCount: results.length });
   };
 
   const exportJSON = () => {
@@ -30,6 +47,8 @@ export default function ExportActions({ results, imageUrl }: ExportActionsProps)
       2,
     );
     downloadFile(json, "search-results.json", "application/json");
+    toast.success("JSON exported successfully");
+    trackEvent(ANALYTICS_EVENTS.EXPORT_JSON, { resultCount: results.length });
   };
 
   const copyToClipboard = async () => {
@@ -39,9 +58,10 @@ export default function ExportActions({ results, imageUrl }: ExportActionsProps)
 
     try {
       await navigator.clipboard.writeText(text);
-      alert("Results copied to clipboard!");
+      toast.success("Results copied to clipboard");
+      trackEvent(ANALYTICS_EVENTS.COPY_RESULTS, { resultCount: results.length });
     } catch {
-      alert("Failed to copy to clipboard");
+      toast.error("Failed to copy to clipboard");
     }
   };
 
@@ -57,12 +77,18 @@ export default function ExportActions({ results, imageUrl }: ExportActionsProps)
           text: `Found ${results.length} results`,
           url: shareUrl,
         })
+        .then(() => {
+          trackEvent(ANALYTICS_EVENTS.SHARE_RESULTS, { resultCount: results.length });
+        })
         .catch(() => {});
     } else {
       navigator.clipboard
         .writeText(shareUrl)
-        .then(() => alert("Shareable link copied to clipboard!"))
-        .catch(() => alert("Failed to copy link"));
+        .then(() => {
+          toast.success("Shareable link copied to clipboard");
+          trackEvent(ANALYTICS_EVENTS.SHARE_RESULTS, { resultCount: results.length });
+        })
+        .catch(() => toast.error("Failed to copy link"));
     }
   };
 
@@ -80,25 +106,29 @@ export default function ExportActions({ results, imageUrl }: ExportActionsProps)
     <div className="flex flex-wrap gap-2">
       <button
         onClick={exportCSV}
-        className="rounded-full border border-sand-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+        className="rounded-full border border-sand-300 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[44px]"
+        aria-label="Export results as CSV file"
       >
         Export CSV
       </button>
       <button
         onClick={exportJSON}
-        className="rounded-full border border-sand-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+        className="rounded-full border border-sand-300 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[44px]"
+        aria-label="Export results as JSON file"
       >
         Export JSON
       </button>
       <button
         onClick={copyToClipboard}
-        className="rounded-full border border-sand-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+        className="rounded-full border border-sand-300 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[44px]"
+        aria-label="Copy results to clipboard"
       >
         Copy
       </button>
       <button
         onClick={shareResults}
-        className="rounded-full border border-sand-300 bg-white px-4 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2"
+        className="rounded-full border border-sand-300 bg-white px-4 py-2.5 text-xs font-semibold uppercase tracking-[0.2em] text-ink-700 transition hover:border-ink-900 hover:text-ink-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ember-500 focus-visible:ring-offset-2 min-h-[44px]"
+        aria-label="Share search results"
       >
         Share
       </button>

@@ -104,13 +104,26 @@ describe("verifyTurnstileToken", () => {
       expect(result).toEqual({
         ok: false,
         error: "Turnstile verification failed.",
-        details: undefined,
+        details: [],
       });
     });
   });
 
   describe("network errors", () => {
-    it("throws error when fetch fails", async () => {
+    it("returns error when fetch times out", async () => {
+      const abortError = new Error("Aborted");
+      abortError.name = "AbortError";
+      global.fetch = vi.fn().mockRejectedValue(abortError);
+
+      const result = await verifyTurnstileToken(env, "valid-token");
+
+      expect(result).toEqual({
+        ok: false,
+        error: "Security verification timed out. Please try again.",
+      });
+    });
+
+    it("throws error when fetch fails with non-abort error", async () => {
       global.fetch = vi.fn().mockRejectedValue(new Error("Network error"));
 
       await expect(verifyTurnstileToken(env, "valid-token")).rejects.toThrow(
@@ -127,14 +140,6 @@ describe("verifyTurnstileToken", () => {
         ok: false,
         error: "Turnstile verification failed.",
       });
-    });
-
-    it("throws error when response times out", async () => {
-      global.fetch = vi.fn().mockRejectedValue(new Error("Request timeout"));
-
-      await expect(verifyTurnstileToken(env, "valid-token")).rejects.toThrow(
-        "Request timeout",
-      );
     });
   });
 

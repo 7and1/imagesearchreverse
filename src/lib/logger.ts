@@ -1,6 +1,7 @@
 /**
  * Structured logging module
- * Provides consistent logging format with timing breakdowns and context
+ * Provides consistent logging format with timing breakdowns, request tracing,
+ * and business metrics tracking
  */
 
 export type LogLevel = "info" | "warn" | "error" | "debug";
@@ -17,9 +18,84 @@ export type TimingMetric = {
 };
 
 /**
- * Structured logger with consistent format
+ * Trace context for distributed tracing
+ * Follows W3C Trace Context specification patterns
+ */
+export type TraceContext = {
+  traceId: string;
+  spanId: string;
+  parentSpanId?: string;
+  sampled?: boolean;
+};
+
+/**
+ * Business metrics for tracking application KPIs
+ */
+export type BusinessMetric = {
+  name: string;
+  value: number;
+  unit?: string;
+  tags?: Record<string, string>;
+};
+
+/**
+ * Generate a random hex string of specified length
+ */
+const randomHex = (length: number): string => {
+  const bytes = new Uint8Array(length / 2);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
+/**
+ * Create a new trace context
+ */
+export const createTraceContext = (parentContext?: TraceContext): TraceContext => {
+  return {
+    traceId: parentContext?.traceId ?? randomHex(32),
+    spanId: randomHex(16),
+    parentSpanId: parentContext?.spanId,
+    sampled: parentContext?.sampled ?? true,
+  };
+};
+
+/**
+ * Parse trace context from W3C traceparent header
+ * Format: version-traceId-spanId-flags
+ */
+export const parseTraceParent = (header: string | null): TraceContext | null => {
+  if (!header) return null;
+
+  const parts = header.split("-");
+  if (parts.length !== 4) return null;
+
+  const [version, traceId, spanId, flags] = parts;
+  if (version !== "00" || traceId.length !== 32 || spanId.length !== 16) {
+    return null;
+  }
+
+  return {
+    traceId,
+    spanId,
+    sampled: (parseInt(flags, 16) & 0x01) === 1,
+  };
+};
+
+/**
+ * Format trace context as W3C traceparent header
+ */
+export const formatTraceParent = (ctx: TraceContext): string => {
+  const flags = ctx.sampled ? "01" : "00";
+  return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
+};
+
+/**
+ * Structured logger with consistent format, request tracing, and metrics
  */
 export class Logger {
+  private traceContext?: TraceContext;
+  private requestId?: string;
+
   constructor(
     private readonly context: string,
     private readonly enabled: boolean = true,
@@ -29,7 +105,34 @@ export class Logger {
    * Create a child logger with additional context
    */
   child(additionalContext: string): Logger {
-    return new Logger(`${this.context}:${additionalContext}`, this.enabled);
+    const child = new Logger(`${this.context}:${additionalContext}`, this.enabled);
+    child.traceContext = this.traceContext;
+    child.requestId = this.requestId;
+    return child;
+  }
+
+  /**
+   * Create a logger with request context for tracing
+   */
+  withRequest(requestId: string, traceContext?: TraceContext): Logger {
+    const child = new Logger(this.context, this.enabled);
+    child.requestId = requestId;
+    child.traceContext = traceContext ?? createTraceContext();
+    return child;
+  }
+
+  /**
+   * Get current trace context
+   */
+  getTraceContext(): TraceContext | undefined {
+    return this.traceContext;
+  }
+
+  /**
+   * Get current request ID
+   */
+  getRequestId(): string | undefined {
+    return this.requestId;
   }
 
   /**
@@ -73,6 +176,53 @@ export class Logger {
   }
 
   /**
+   * Log a business metric
+   */
+  metric(metric: BusinessMetric): void {
+    if (!this.enabled) return;
+    this.log("info", `metric:${metric.name}`, {
+      metricName: metric.name,
+      metricValue: metric.value,
+      metricUnit: metric.unit,
+      metricTags: metric.tags,
+      _type: "metric",
+    });
+  }
+
+  /**
+   * Log request start (for request/response pair tracking)
+   */
+  requestStart(method: string, path: string, context?: LogContext): void {
+    this.info(`${method} ${path} started`, {
+      ...context,
+      _type: "request_start",
+      method,
+      path,
+    });
+  }
+
+  /**
+   * Log request end (for request/response pair tracking)
+   */
+  requestEnd(
+    method: string,
+    path: string,
+    statusCode: number,
+    durationMs: number,
+    context?: LogContext
+  ): void {
+    const level = statusCode >= 500 ? "error" : statusCode >= 400 ? "warn" : "info";
+    this.log(level, `${method} ${path} completed`, {
+      ...context,
+      _type: "request_end",
+      method,
+      path,
+      statusCode,
+      durationMs,
+    });
+  }
+
+  /**
    * Create a timing scope for measuring operation duration
    */
   startTiming(operation: string): TimingScope {
@@ -80,7 +230,7 @@ export class Logger {
   }
 
   /**
-   * Format error for logging
+   * Format error for logging (sanitized - no sensitive data)
    */
   private formatError(error: unknown): LogContext {
     if (!error) return {};
@@ -111,35 +261,48 @@ export class Logger {
   }
 
   /**
-   * Core logging method
+   * Core logging method - outputs structured JSON
    */
   private log(level: LogLevel, message: string, context?: LogContext): void {
-    const logEntry = {
+    const logEntry: Record<string, unknown> = {
       level,
       context: this.context,
       message,
       timestamp: new Date().toISOString(),
-      ...context,
     };
+
+    // Add request tracing context
+    if (this.requestId) {
+      logEntry.requestId = this.requestId;
+    }
+    if (this.traceContext) {
+      logEntry.traceId = this.traceContext.traceId;
+      logEntry.spanId = this.traceContext.spanId;
+      if (this.traceContext.parentSpanId) {
+        logEntry.parentSpanId = this.traceContext.parentSpanId;
+      }
+    }
+
+    // Add additional context
+    if (context) {
+      Object.assign(logEntry, context);
+    }
 
     const consoleMethod =
       level === "error" ? "error" : level === "warn" ? "warn" : "log";
-    const prefix = `[${this.context}] ${message}`;
-    const contextStr =
-      Object.keys(logEntry).length > 4
-        ? " " + JSON.stringify(logEntry, null, 2)
-        : "";
 
-    console[consoleMethod](prefix + contextStr);
+    // Output as JSON for structured log aggregation
+    console[consoleMethod](JSON.stringify(logEntry));
   }
 }
 
 /**
- * Timing scope for measuring operation duration
+ * Timing scope for measuring operation duration with detailed breakdowns
  */
 export class TimingScope {
   private metrics: TimingMetric[] = [];
   private readonly startTime: number;
+  private currentSpan?: { name: string; start: number };
 
   constructor(
     private readonly logger: Logger,
@@ -161,9 +324,40 @@ export class TimingScope {
   }
 
   /**
+   * Start a named span within this timing scope
+   */
+  startSpan(name: string): void {
+    if (this.currentSpan) {
+      this.endSpan();
+    }
+    this.currentSpan = { name, start: Date.now() };
+  }
+
+  /**
+   * End the current span
+   */
+  endSpan(): void {
+    if (this.currentSpan) {
+      this.addMetric(this.currentSpan.name, this.currentSpan.start);
+      this.currentSpan = undefined;
+    }
+  }
+
+  /**
+   * Get elapsed time since start
+   */
+  elapsed(): number {
+    return Date.now() - this.startTime;
+  }
+
+  /**
    * End the timing scope and log the results
    */
   end(additionalContext?: LogContext): void {
+    if (this.currentSpan) {
+      this.endSpan();
+    }
+
     const endTime = Date.now();
     const totalDuration = endTime - this.startTime;
 
@@ -176,6 +370,7 @@ export class TimingScope {
     this.logger.info(`${this.operation} completed`, {
       totalDurationMs: totalDuration,
       timingBreakdown,
+      _type: "timing",
       ...additionalContext,
     });
   }
@@ -184,11 +379,16 @@ export class TimingScope {
    * End the timing scope with an error
    */
   endWithError(error: unknown, additionalContext?: LogContext): void {
+    if (this.currentSpan) {
+      this.endSpan();
+    }
+
     const endTime = Date.now();
     const totalDuration = endTime - this.startTime;
 
     this.logger.error(`${this.operation} failed`, error, {
       totalDurationMs: totalDuration,
+      _type: "timing_error",
       ...additionalContext,
     });
   }
@@ -202,6 +402,18 @@ export const createLogger = (context: string, enabled = true): Logger => {
 };
 
 /**
+ * Create a logger with request context
+ */
+export const createRequestLogger = (
+  context: string,
+  requestId: string,
+  traceParent?: string | null
+): Logger => {
+  const traceContext = parseTraceParent(traceParent ?? null) ?? createTraceContext();
+  return new Logger(context).withRequest(requestId, traceContext);
+};
+
+/**
  * Global logger instances for common operations
  */
 export const loggers = {
@@ -210,4 +422,6 @@ export const loggers = {
   dataforseo: new Logger("dataforseo"),
   cache: new Logger("cache"),
   rateLimit: new Logger("rateLimit"),
+  health: new Logger("api:health"),
+  metrics: new Logger("api:metrics"),
 } as const;

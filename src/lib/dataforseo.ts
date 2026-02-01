@@ -33,6 +33,30 @@ const REQUEST_TIMEOUT_MS = 30000; // 30 seconds
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY_MS = 1000; // Start with 1 second
 
+/**
+ * Polling configuration for DataForSEO task status checks.
+ *
+ * Uses exponential backoff with the following strategy:
+ * - Start with 1.5s delay, increase by 1.3x each attempt
+ * - Cap delay at 5s to prevent excessive waits
+ * - Maximum 15 attempts or 45s total time
+ *
+ * This balances responsiveness (quick results for fast tasks)
+ * with efficiency (fewer requests for slow tasks).
+ */
+export const POLLING_CONFIG = {
+  /** Maximum polling attempts before giving up */
+  maxAttempts: 15,
+  /** Initial delay between polls in milliseconds */
+  initialDelayMs: 1500,
+  /** Maximum delay between polls in milliseconds (cap for exponential backoff) */
+  maxDelayMs: 5000,
+  /** Maximum total polling time in milliseconds (45 seconds) */
+  maxTotalTimeMs: 45000,
+  /** Backoff multiplier for adaptive polling (1.3x increase per attempt) */
+  backoffMultiplier: 1.3,
+} as const;
+
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -320,10 +344,11 @@ export const postSearchByImageTask = async (
       return (await response.json()) as DataForSeoResponse;
     } catch (error) {
       if (isAppError(error)) {
-        // Don't retry validation errors or auth errors
+        // Don't retry validation errors, auth errors, or client errors (4xx except 429)
         if (
           error instanceof ValidationError ||
-          DataForSEOError.isAuthError(error)
+          DataForSEOError.isAuthError(error) ||
+          DataForSEOError.isClientError(error)
         ) {
           throw error;
         }
@@ -409,10 +434,11 @@ export const getSearchByImageTask = async (
       return (await response.json()) as DataForSeoResponse;
     } catch (error) {
       if (isAppError(error)) {
-        // Don't retry validation errors or auth errors
+        // Don't retry validation errors, auth errors, or client errors (4xx except 429)
         if (
           error instanceof ValidationError ||
-          DataForSEOError.isAuthError(error)
+          DataForSEOError.isAuthError(error) ||
+          DataForSEOError.isClientError(error)
         ) {
           throw error;
         }
@@ -434,21 +460,61 @@ export const getSearchByImageTask = async (
   throw lastError || new DataForSEOError("Max retries exceeded", "max_retries");
 };
 
+/**
+ * Poll for search results with exponential backoff.
+ *
+ * Uses adaptive polling that starts fast and slows down over time,
+ * balancing responsiveness with API efficiency.
+ *
+ * @param env - Application environment with API credentials
+ * @param taskId - The DataForSEO task ID to poll
+ * @param options - Optional polling configuration overrides
+ * @returns Object containing raw data and extracted results
+ */
 export const pollSearchResults = async (
   env: AppEnv,
   taskId: string,
-  attempts = 3,
-  delayMs = 1500,
+  options?: {
+    maxAttempts?: number;
+    initialDelayMs?: number;
+    maxDelayMs?: number;
+    maxTotalTimeMs?: number;
+  },
 ) => {
-  for (let attempt = 0; attempt < attempts; attempt += 1) {
-    await delay(delayMs);
+  const {
+    maxAttempts = POLLING_CONFIG.maxAttempts,
+    initialDelayMs = POLLING_CONFIG.initialDelayMs,
+    maxDelayMs = POLLING_CONFIG.maxDelayMs,
+    maxTotalTimeMs = POLLING_CONFIG.maxTotalTimeMs,
+  } = options ?? {};
+
+  const startTime = Date.now();
+  let currentDelay = initialDelayMs;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    // Check if we've exceeded max total time
+    const elapsed = Date.now() - startTime;
+    if (elapsed >= maxTotalTimeMs) {
+      break;
+    }
+
+    await delay(currentDelay);
+
     const data = await getSearchByImageTask(env, taskId);
     const results = extractSearchResults(data);
+
     if (results.length > 0) {
-      return { data, results };
+      return { data, results, attempts: attempt + 1 };
     }
+
+    // Apply exponential backoff with cap
+    currentDelay = Math.min(
+      currentDelay * POLLING_CONFIG.backoffMultiplier,
+      maxDelayMs
+    );
   }
-  return { data: null, results: [] };
+
+  return { data: null, results: [], attempts: maxAttempts };
 };
 
 export const resolveSearchResults = async (env: AppEnv, imageUrl: string) => {

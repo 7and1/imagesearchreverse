@@ -99,6 +99,9 @@ export default function SearchHistory({
                 <img
                   src={item.previewUrl}
                   alt="Search preview"
+                  loading="lazy"
+                  width={48}
+                  height={48}
                   className="h-full w-full object-cover"
                 />
               ) : (
