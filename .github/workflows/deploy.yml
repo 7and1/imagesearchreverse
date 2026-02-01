@@ -20,7 +20,9 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps --include=optional
+        run: |
+          npm install --legacy-peer-deps --include=optional
+          npm install lightningcss --force
 
       - name: Build for Cloudflare Pages
         run: npm run pages:build
